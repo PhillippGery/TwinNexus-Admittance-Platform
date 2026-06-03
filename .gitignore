@@ -1,0 +1,34 @@
+# macOS / cross-platform
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.python-version
+.venv/
+venv/
+.env
+
+# ROS 2 / colcon / CMake
+build/
+install/
+log/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CTestTestfile.cmake
+Testing/
+compile_commands.json
+Makefile
+
+# Packaging
+*.egg-info/
+dist/
