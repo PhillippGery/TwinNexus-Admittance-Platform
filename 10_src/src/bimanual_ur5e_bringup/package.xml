@@ -3,7 +3,7 @@
   <name>bimanual_ur5e_bringup</name>
   <version>0.0.0</version>
   <description>Launch and parameter package for the bimanual UR5e system.</description>
-  <maintainer email="<TBD>"><TBD></maintainer>
+  <maintainer email="todo@example.com">TBD</maintainer>
   <license>Proprietary</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

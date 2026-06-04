@@ -1,0 +1,56 @@
+admittance_controller:
+  ros__parameters:
+    type: admittance_controller/AdmittanceController
+    joints:
+      - shoulder_pan_joint
+      - shoulder_lift_joint
+      - elbow_joint
+      - wrist_1_joint
+      - wrist_2_joint
+      - wrist_3_joint
+
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    chainable_command_interfaces:
+      - position
+
+    kinematics:
+      plugin_name: kinematics_interface_kdl/KinematicsInterfaceKDL
+      plugin_package: kinematics_interface
+      base: base_link
+      tip: tool0
+
+    ft_sensor:
+      name: force_torque_sensor
+      frame: tool0
+      filter_coefficient: 0.005
+
+    control:
+      frame: tool0
+
+    mass:
+      - 2.0
+      - 2.0
+      - 2.0
+      - 0.2
+      - 0.2
+      - 0.2
+
+    damping:
+      - 40.0
+      - 40.0
+      - 40.0
+      - 4.0
+      - 4.0
+      - 4.0
+
+    stiffness:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
