@@ -3,12 +3,19 @@
   <name>ur5e_admittance_control</name>
   <version>0.0.0</version>
   <description>Low-level admittance-control integration package for bimanual UR5e robots.</description>
-  <maintainer email="<TBD>"><TBD></maintainer>
+  <maintainer email="todo@example.com">TBD</maintainer>
   <license>Proprietary</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+    <depend>kinematics_interface</depend>
+    <depend>kinematics_interface_kdl</depend>
+    <depend>admittance_controller</depend>
+    <depend>controller_interface</depend>
+    <depend>pluginlib</depend>
+    <depend>hardware_interface</depend>
 
   <export>
     <build_type>ament_cmake</build_type>
+    <controller_interface plugin="${prefix}/admittance_controller.xml"/>
   </export>
 </package>

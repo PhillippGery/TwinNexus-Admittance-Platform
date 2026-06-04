@@ -1,0 +1,9 @@
+<library path="ur5e_admittance_control">
+  <class name="admittance_controller/AdmittanceController"
+         type="admittance_controller::AdmittanceController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Admittance Controller for UR5e
+    </description>
+  </class>
+</library>
