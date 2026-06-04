@@ -1,6 +1,6 @@
 admittance_controller:
   ros__parameters:
-    type: admittance_controller/AdmittanceController
+    type: ur5e_admittance_control/AdmittanceController
     joints:
       - shoulder_pan_joint
       - shoulder_lift_joint
@@ -14,22 +14,10 @@ admittance_controller:
     state_interfaces:
       - position
       - velocity
-    chainable_command_interfaces:
-      - position
-
-    kinematics:
-      plugin_name: kinematics_interface_kdl/KinematicsInterfaceKDL
-      plugin_package: kinematics_interface
-      base: base_link
-      tip: tool0
 
     ft_sensor:
-      name: force_torque_sensor
-      frame: tool0
+      name: tcp_fts_sensor
       filter_coefficient: 0.005
-
-    control:
-      frame: tool0
 
     mass:
       - 2.0
@@ -48,9 +36,12 @@ admittance_controller:
       - 4.0
 
     stiffness:
-      - 0.0
-      - 0.0
-      - 0.0
-      - 0.0
-      - 0.0
-      - 0.0
+      - 250.0
+      - 250.0
+      - 250.0
+      - 25.0
+      - 25.0
+      - 25.0
+
+    wrench_deadband: 0.5
+    max_position_offset: 0.05
