@@ -1,0 +1,91 @@
+admittance_controller:
+  ros__parameters:
+    type: admittance_controller/AdmittanceController
+
+    joints:
+      - shoulder_pan_joint
+      - shoulder_lift_joint
+      - elbow_joint
+      - wrist_1_joint
+      - wrist_2_joint
+      - wrist_3_joint
+
+    command_interfaces:
+      - position
+
+    state_interfaces:
+      - position
+      - velocity
+
+    chainable_command_interfaces:
+      - position
+      - velocity
+
+    kinematics:
+      plugin_name: kinematics_interface_kdl/KinematicsInterfaceKDL
+      plugin_package: kinematics_interface
+      base: base
+      tip: tool0
+      group_name: arm
+      alpha: 0.0005
+
+    ft_sensor:
+      name: tcp_fts_sensor
+      frame:
+        id: tool0_controller
+        external: true
+      filter_coefficient: 0.005
+
+    control:
+      frame:
+        id: tool0_controller
+        external: true
+
+    fixed_world_frame:
+      frame:
+        id: base
+        external: false
+
+    gravity_compensation:
+      frame:
+        id: tool0
+        external: false
+      CoG:
+        pos:
+          - 0.0
+          - 0.0
+          - 0.0
+        force: 0.0
+
+    admittance:
+      selected_axes:
+        - true
+        - true
+        - false
+        - true
+        - true
+        - true
+
+      mass:
+        - 20.0
+        - 20.0
+        - 20.0
+        - 0.2
+        - 0.2
+        - 0.2
+
+      damping_ratio:
+        - 2.828427
+        - 2.828427
+        - 2.828427
+        - 2.828427
+        - 2.828427
+        - 2.828427
+
+      stiffness:
+        - 250.0
+        - 250.0
+        - 250.0
+        - 25.0
+        - 25.0
+        - 25.0

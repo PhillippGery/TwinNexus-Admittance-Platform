@@ -1,4 +1,4 @@
-<library path="admittance_controller">
+<library path="ur5e_admittance_controller">
   <class name="ur5e_admittance_control/AdmittanceController"
          type="admittance_controller::AdmittanceController"
          base_class_type="controller_interface::ControllerInterface">
