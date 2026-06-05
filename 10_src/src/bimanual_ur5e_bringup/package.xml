@@ -14,7 +14,6 @@
   <exec_depend>kinematics_interface_kdl</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
-  <exec_depend>ur5e_admittance_control</exec_depend>
   <exec_depend>ur_robot_driver</exec_depend>
 
   <export>
