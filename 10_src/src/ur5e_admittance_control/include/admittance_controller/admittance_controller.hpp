@@ -52,9 +52,12 @@ private:
   double ft_filter_coefficient_{0.005};
   double wrench_deadband_{0.5};
   double max_position_offset_{0.05};
+  double max_position_step_{0.002};
   std::vector<double> mass_;
   std::vector<double> damping_;
   std::vector<double> stiffness_;
+  std::vector<double> reference_positions_;
+  std::vector<double> last_commanded_positions_;
   std::array<double, 6> filtered_wrench_{};
 };
 

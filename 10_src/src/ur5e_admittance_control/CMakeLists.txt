@@ -14,16 +14,16 @@ find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 
-add_library(admittance_controller SHARED
+add_library(ur5e_admittance_controller SHARED
   src/admittance_controller.cpp
 )
 
-target_include_directories(admittance_controller PUBLIC
+target_include_directories(ur5e_admittance_controller PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
 
-ament_target_dependencies(admittance_controller
+ament_target_dependencies(ur5e_admittance_controller
   controller_interface
   hardware_interface
   pluginlib
@@ -44,7 +44,7 @@ install(
 )
 
 install(
-  TARGETS admittance_controller
+  TARGETS ur5e_admittance_controller
   EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib

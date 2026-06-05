@@ -34,6 +34,7 @@ controller_interface::CallbackReturn AdmittanceController::on_init()
   auto_declare<double>("ft_sensor.filter_coefficient", ft_filter_coefficient_);
   auto_declare<double>("wrench_deadband", wrench_deadband_);
   auto_declare<double>("max_position_offset", max_position_offset_);
+  auto_declare<double>("max_position_step", max_position_step_);
   auto_declare<std::vector<double>>("mass", std::vector<double>(kCartesianDof, 0.0));
   auto_declare<std::vector<double>>("damping", std::vector<double>(kCartesianDof, 0.0));
   auto_declare<std::vector<double>>("stiffness", std::vector<double>(kCartesianDof, 1.0));
@@ -66,6 +67,8 @@ controller_interface::CallbackReturn AdmittanceController::on_configure(
   }
 
   filtered_wrench_.fill(0.0);
+  reference_positions_.assign(joints_.size(), 0.0);
+  last_commanded_positions_.assign(joints_.size(), 0.0);
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -93,6 +96,8 @@ controller_interface::CallbackReturn AdmittanceController::on_activate(
   }
 
   filtered_wrench_.fill(0.0);
+  reference_positions_.assign(joints_.size(), 0.0);
+  last_commanded_positions_.assign(joints_.size(), 0.0);
 
   for (std::size_t index = 0; index < joints_.size(); ++index)
   {
@@ -106,7 +111,10 @@ controller_interface::CallbackReturn AdmittanceController::on_activate(
       return controller_interface::CallbackReturn::ERROR;
     }
 
-    if (!command_interfaces_[index].set_value(position))
+    reference_positions_[index] = position;
+    last_commanded_positions_[index] = position;
+
+    if (!command_interfaces_[index].set_value(reference_positions_[index]))
     {
       RCLCPP_ERROR(
         get_node()->get_logger(),
@@ -124,10 +132,11 @@ controller_interface::CallbackReturn AdmittanceController::on_deactivate(
 {
   for (std::size_t index = 0; index < std::min(command_interfaces_.size(), joints_.size()); ++index)
   {
-    const double position = state_interfaces_[index].get_value();
-    if (std::isfinite(position))
+    const double hold_position =
+      index < last_commanded_positions_.size() ? last_commanded_positions_[index] : state_interfaces_[index].get_value();
+    if (std::isfinite(hold_position))
     {
-      command_interfaces_[index].set_value(position);
+      command_interfaces_[index].set_value(hold_position);
     }
   }
 
@@ -204,7 +213,15 @@ controller_interface::return_type AdmittanceController::update(
         max_position_offset_);
     }
 
-    if (!command_interfaces_[joint_index].set_value(position + offset))
+    const double target_position = reference_positions_[joint_index] + offset;
+    const double delta_to_target = target_position - last_commanded_positions_[joint_index];
+    const double limited_delta = std::clamp(
+      delta_to_target,
+      -max_position_step_,
+      max_position_step_);
+    const double commanded_position = last_commanded_positions_[joint_index] + limited_delta;
+
+    if (!command_interfaces_[joint_index].set_value(commanded_position))
     {
       RCLCPP_ERROR_THROTTLE(
         get_node()->get_logger(),
@@ -214,6 +231,8 @@ controller_interface::return_type AdmittanceController::update(
         command_interfaces_[joint_index].get_name().c_str());
       return controller_interface::return_type::ERROR;
     }
+
+    last_commanded_positions_[joint_index] = commanded_position;
   }
 
   return controller_interface::return_type::OK;
@@ -289,6 +308,13 @@ bool AdmittanceController::read_parameters()
   if (max_position_offset_ <= 0.0)
   {
     RCLCPP_ERROR(get_node()->get_logger(), "'max_position_offset' must be greater than zero.");
+    return false;
+  }
+
+  max_position_step_ = get_node()->get_parameter("max_position_step").as_double();
+  if (max_position_step_ <= 0.0)
+  {
+    RCLCPP_ERROR(get_node()->get_logger(), "'max_position_step' must be greater than zero.");
     return false;
   }
 
