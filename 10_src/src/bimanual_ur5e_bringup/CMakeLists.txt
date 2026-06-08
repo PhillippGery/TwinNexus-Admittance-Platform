@@ -10,4 +10,11 @@ install(DIRECTORY
   DESTINATION share/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+  scripts/admittance_keyboard_teleop.py
+  scripts/moveit_servo_to_admittance.py
+  scripts/set_servo_command_type.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()

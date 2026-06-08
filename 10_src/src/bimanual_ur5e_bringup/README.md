@@ -34,8 +34,63 @@ boot_hw
 ros2 launch bimanual_ur5e_bringup ur5e_upstream_admittance.launch.py
 ```
 
+## Admittance + keyboard TCP teleop
+
+- Keep `boot_hw` as-is.
+- Press **Play** on the robot before enabling admittance or teleop.
+- Run the admittance controller launch first, then start the Servo teleop launch.
+- This uses the standard ROS stack:
+  - `ur_moveit_config` + `moveit_servo`
+  - `teleop_twist_keyboard`
+  - a small bridge in this package from Servo's joint output to `admittance_controller/joint_references`
+
+Example:
+
+```bash
+boot_hw
+```
+
+```bash
+ros2 launch bimanual_ur5e_bringup ur5e_upstream_admittance.launch.py
+```
+
+```bash
+ros2 launch bimanual_ur5e_bringup ur5e_admittance_servo_teleop.launch.py
+```
+
+Then, in a separate interactive terminal, run:
+
+```bash
+ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p stamped:=true -p frame_id:=base_link -p repeat_rate:=20.0 -p key_timeout:=0.25 -p speed:=0.08 -p turn:=0.25 -r /cmd_vel:=/servo_node/delta_twist_cmds
+```
+
+Keyboard usage comes from `teleop_twist_keyboard`:
+
+- `i` / `,` for +X / -X in the chosen command frame
+- `J` / `L` (uppercase) for +Y / -Y strafing
+- `t` / `b` for +Z / -Z
+- lowercase `j` / `l` command yaw, so they will look like circular TCP motion
+- `k` stops motion
+- `q/z`, `w/x`, `e/c` to scale speeds
+
+For easier first tests, keep `twist_frame_id:=base_link`. If you later want tool-relative motion, set `twist_frame_id:=tool0`.
+
+```bash
+ros2 run bimanual_ur5e_bringup admittance_keyboard_teleop.py
+```
+
+The keyboard helper publishes small joint-reference steps into the active
+`admittance_controller`, so the robot stays compliant while you nudge its
+equilibrium pose from the PC. The MoveIt Servo launch above is the preferred path for TCP Cartesian teleop.
+
 Required runtime packages for the upstream controller:
 
 ```bash
 sudo apt install ros-jazzy-admittance-controller ros-jazzy-kinematics-interface ros-jazzy-kinematics-interface-kdl
+```
+
+Additional runtime packages for the Servo teleop path:
+
+```bash
+sudo apt install ros-jazzy-moveit-servo ros-jazzy-teleop-twist-keyboard ros-jazzy-ur-moveit-config
 ```
