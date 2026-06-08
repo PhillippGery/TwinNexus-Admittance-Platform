@@ -1,0 +1,36 @@
+# wsg32_params.yaml
+# -----------------
+# Parameters for the WSG 32 ROS2 driver node.
+# Load with: ros2 run wsg32_driver wsg32_node --ros-args --params-file <path>
+# Or use the launch file, which loads this automatically.
+
+wsg32_node:
+  ros__parameters:
+
+    # ── Network ───────────────────────────────────────────────────────────
+    # IP of the gripper on the ghost subnet (192.168.1.X)
+    # Left gripper:  192.168.1.200
+    # Right gripper: 192.168.1.201  (set for second arm)
+    gripper_ip:   "192.168.1.201"
+    gripper_port: 1000
+
+    # ── Identity ──────────────────────────────────────────────────────────
+    # Used as the joint name in JointState messages.
+    # Change to wsg32_right for the second arm.
+    gripper_name: "wsg32_right"
+
+    # ── Motion limits ─────────────────────────────────────────────────────
+    # WSG 32 stroke = 55 mm (each jaw travels ~27.5 mm from center).
+    # Double-check on your unit: Settings → System Info in web UI.
+    max_pos_mm: 66.0
+
+    # ── Deadband ──────────────────────────────────────────────────────────
+    # Ignore MOVE commands smaller than this (mm).
+    # Prevents TCP spam from GELLO encoder jitter.
+    # 0.2 mm is safe for most teleoperation; lower to 0.1 for fine tasks.
+    cmd_deadband_mm: 0.2
+
+    # ── Publishing ────────────────────────────────────────────────────────
+    # Rate at which ~/joint_state is published (Hz).
+    # Match your UR5e RTDE rate for synchronized rosbag2 recording.
+    publish_hz: 50.0
