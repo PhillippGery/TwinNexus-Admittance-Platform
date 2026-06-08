@@ -25,7 +25,7 @@ Custom ROS 2 Jazzy support for the Weiss WSG 32 Ethernet gripper lives in `10_sr
 One-time hardware prerequisite: enable the GCL text interface in the gripper web UI:
 
 ```bash
-http://192.168.1.200
+http://192.168.1.201
 ```
 
 Navigate to:
