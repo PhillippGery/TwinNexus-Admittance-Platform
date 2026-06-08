@@ -1,0 +1,3 @@
+[submodule "10_src/src/wsg32_ros2"]
+	path = 10_src/src/wsg32_ros2
+	url = git@github.com:PhillippGery/wsg32_ros2.git
