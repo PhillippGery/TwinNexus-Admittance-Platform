@@ -32,14 +32,13 @@ from launch_ros.actions import Node, PushRosNamespace
 # ── Serial numbers ────────────────────────────────────────────────────────────
 SERIAL_WRIST_LEFT  = '151322062583'
 SERIAL_WRIST_RIGHT = '151422060684'
-SERIAL_OVERHEAD    = 'XXXXXXXXXX'    # TODO: fill in when overhead camera is assigned
-
+SERIAL_OVERHEAD    = "'146222254752'"
 # ── Stream config ─────────────────────────────────────────────────────────────
 # Resolution and FPS for RGB stream.
 # 1280x720 @ 30fps is the safest choice for three simultaneous cameras on USB3.
 # Increase  only if you have confirmed bandwidth headroom.
-COLOR_WIDTH  = 1280
-COLOR_HEIGHT = 720
+COLOR_WIDTH  = 640
+COLOR_HEIGHT = 480
 COLOR_FPS    = 30
 
 
@@ -67,9 +66,8 @@ def make_camera_node(camera_name: str, serial: str,
 
                 # ── RGB stream ────────────────────────────────────────────
                 'enable_color':        True,
-                'color_width':         COLOR_WIDTH,
+                'rgb_camera.color_profile': '640x480x30',
                 'color_height':        COLOR_HEIGHT,
-                'color_fps':           COLOR_FPS,
 
                 # ── Depth stream ──────────────────────────────────────────
                 # Disabled by default — enable per-camera if needed
@@ -138,9 +136,8 @@ def generate_launch_description():
                 'serial_no':           overhead_serial,
                 'camera_name':         'overhead',
                 'enable_color':        True,
-                'color_width':         COLOR_WIDTH,
+                'rgb_camera.color_profile': '640x480x30',
                 'color_height':        COLOR_HEIGHT,
-                'color_fps':           COLOR_FPS,
                 'enable_depth':        enable_depth,
                 'depth_width':         640,
                 'depth_height':        480,

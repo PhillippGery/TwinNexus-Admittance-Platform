@@ -159,8 +159,8 @@ def generate_launch_description():
         actions=[
             GroupAction([
                 cameras_launch,
-                gripper_right,
-                gripper_left,
+                #gripper_right,
+                #gripper_left,
                 gello_bridge,
             ])
         ],
