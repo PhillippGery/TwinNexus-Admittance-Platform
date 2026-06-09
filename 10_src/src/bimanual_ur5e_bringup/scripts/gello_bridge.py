@@ -183,10 +183,9 @@ class GELLOBridge(Node):
         )
 
         self._pub.publish(msg)
-        self.get_logger().info(
-            f'Published: {[f"{p:.3f}" for p in safe_target]}',
-            throttle_duration_sec=1.0
-        )
+        # self.get_logger().info(f'Published: {[f"{p:.3f}" for p in safe_target]}',
+        #     throttle_duration_sec=1.0
+        # )
 
     # ── Mock target generator ─────────────────────────────────────────────────
 

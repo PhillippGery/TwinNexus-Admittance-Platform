@@ -36,10 +36,10 @@ SERIAL_OVERHEAD    = 'XXXXXXXXXX'    # TODO: fill in when overhead camera is ass
 
 # ── Stream config ─────────────────────────────────────────────────────────────
 # Resolution and FPS for RGB stream.
-# 640x480 @ 30fps is the safest choice for three simultaneous cameras on USB3.
-# Increase to 1280x720 only if you have confirmed bandwidth headroom.
-COLOR_WIDTH  = 640
-COLOR_HEIGHT = 480
+# 1280x720 @ 30fps is the safest choice for three simultaneous cameras on USB3.
+# Increase  only if you have confirmed bandwidth headroom.
+COLOR_WIDTH  = 1280
+COLOR_HEIGHT = 720
 COLOR_FPS    = 30
 
 
