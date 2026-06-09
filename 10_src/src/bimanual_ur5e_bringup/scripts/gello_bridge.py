@@ -40,7 +40,7 @@ UR5E_JOINT_NAMES = [
 
 # ── Safe home position (radians) ─────────────────────────────────────────────
 # Verify this is a safe pose on YOUR robot before enabling mock mode
-HOME_POS = [-1.6, -1.07, 1.01, -1.52, -1.5, -1.58]
+#HOME_POS = [-1.6, -1.07, 1.01, -1.52, -1.5, -1.58]
 
 # ── Rolling horizon ──────────────────────────────────────────────────────────
 # 40ms = 2 GELLO cycles ahead at 50Hz publish rate
@@ -62,6 +62,9 @@ class GELLOBridge(Node):
         # Joint-space safety clamp — max allowed delta per publish cycle (rad)
         # At 50Hz, 0.01 rad/cycle = 0.5 rad/s max — safe for UR5e
         self.declare_parameter('max_delta_rad', 0.01)
+        self.declare_parameter('mock_start_delay_s', 3.0)
+        self._start_delay = self.get_parameter('mock_start_delay_s').value
+        self._elapsed = 0.0
 
         self._mock        = self.get_parameter('mock').value
         pub_hz            = self.get_parameter('publish_hz').value
@@ -196,10 +199,16 @@ class GELLOBridge(Node):
         if self._mock_center is None:
             return list(self._current_pos)
 
+        self._elapsed += self._dt
+        if self._elapsed < self._start_delay:
+            return list(self._mock_center)
         self._t += self._dt
+
+
         targets = []
         for i, center in enumerate(self._mock_center):
             phase = i * (math.pi / 3)   # 60° phase offset between joints
+            #phase = 0.0
             t_offset = self._t - phase / (2 * math.pi * self._mock_freq)
             offset = self._mock_amp * math.sin(2 * math.pi * self._mock_freq * t_offset)
             targets.append(center + offset)
