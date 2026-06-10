@@ -76,8 +76,8 @@ JOINT_SIGNS   = (1, 1, -1, 1, 1, 1)
 GRIPPER_CONFIG = (7, 115.4, 73.6)
 
 # ── Control ───────────────────────────────────────────────────────────────────
-LOOKAHEAD_NS  = 200_000_000   # 200ms
-MAX_DELTA_RAD = 0.05          # rad per cycle safety clamp
+LOOKAHEAD_NS  = 2_000_000   # 200ms
+
 
 
 class GELLOBridge(Node):
@@ -87,13 +87,13 @@ class GELLOBridge(Node):
 
         # ── Parameters ────────────────────────────────────────────────────
         self.declare_parameter('mock',            False)
-        self.declare_parameter('publish_hz',      50.0)
+        self.declare_parameter('publish_hz',      500.0)
         self.declare_parameter('startup_hold_s',  float('inf'))  # hold forever by default
-        self.declare_parameter('max_delta_rad',   MAX_DELTA_RAD)
+        self.declare_parameter('max_delta_rad',   0.001)
         self.declare_parameter('mock_amp_rad',    0.02)
         self.declare_parameter('mock_freq_hz',    0.2)
-        self.declare_parameter('bridge_delta_rad',   0.01)   # slow during initial bridge
-        self.declare_parameter('tracking_delta_rad', 0.05)   # fast once locked in
+        self.declare_parameter('bridge_delta_rad',   0.001)   # slow during initial bridge
+        self.declare_parameter('tracking_delta_rad', 0.005)   # fast once locked in
         self.declare_parameter('tracking_threshold', 0.05)   # rad — when to switch
 
         self._mock        = self.get_parameter('mock').value
@@ -102,10 +102,10 @@ class GELLOBridge(Node):
         self._max_delta   = self.get_parameter('max_delta_rad').value
         self._mock_amp    = self.get_parameter('mock_amp_rad').value
         self._mock_freq   = self.get_parameter('mock_freq_hz').value
-        self._dt          = 1.0 / pub_hz
         self._bridge_delta       = self.get_parameter('bridge_delta_rad').value
         self._tracking_delta     = self.get_parameter('tracking_delta_rad').value
         self._tracking_threshold = self.get_parameter('tracking_threshold').value
+        self._dt          = 1.0 / pub_hz
 
         # ── State ─────────────────────────────────────────────────────────
         self._current_pos:   list[float] | None = None  # live robot position
