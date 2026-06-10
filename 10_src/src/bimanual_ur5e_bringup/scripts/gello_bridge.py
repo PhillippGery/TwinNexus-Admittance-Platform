@@ -95,6 +95,7 @@ class GELLOBridge(Node):
         self.declare_parameter('bridge_delta_rad',   0.001)   # slow during initial bridge
         self.declare_parameter('tracking_delta_rad', 0.005)   # fast once locked in
         self.declare_parameter('tracking_threshold', 0.05)   # rad — when to switch
+        self.declare_parameter('max_initial_delta_rad', 0.3)
 
         self._mock        = self.get_parameter('mock').value
         pub_hz            = self.get_parameter('publish_hz').value
@@ -105,6 +106,7 @@ class GELLOBridge(Node):
         self._bridge_delta       = self.get_parameter('bridge_delta_rad').value
         self._tracking_delta     = self.get_parameter('tracking_delta_rad').value
         self._tracking_threshold = self.get_parameter('tracking_threshold').value
+        self._max_initial_delta  = self.get_parameter('max_initial_delta_rad').value
         self._dt          = 1.0 / pub_hz
 
         # ── State ─────────────────────────────────────────────────────────
@@ -227,12 +229,25 @@ class GELLOBridge(Node):
             self._elapsed += self._dt
             target = self._initial_pos.copy()
             if not math.isinf(self._hold_s) and self._elapsed >= self._hold_s:
-                self._hold_active = False
-                self._last_pub    = self._initial_pos.copy()
-                self.get_logger().info(
-                    f'Hold complete. Bridging to GELLO over ~'
-                    f'{max(abs(g-r) for g,r in zip(gello_target, self._initial_pos))/self._max_delta/50:.1f}s'
-                )
+                # Safety check — GELLO must be close enough to robot
+                max_delta = max(abs(g - r) for g, r in
+                                zip(gello_target, self._current_pos))
+                if max_delta > self._max_initial_delta:
+                    self.get_logger().warn(
+                        f'HOLD NOT RELEASED — max delta {max_delta:.3f} rad exceeds '
+                        f'max_initial_delta {self._max_initial_delta:.3f} rad. '
+                        f'Move GELLO closer to robot pose.',
+                        throttle_duration_sec=1.0
+                    )
+                    # Reset elapsed so we keep checking every hold_s seconds
+                    self._elapsed = 0.0
+                else:
+                    self._hold_active = False
+                    self._last_pub    = self._initial_pos.copy()
+                    self.get_logger().info(
+                        f'Hold released. Max delta was {max_delta:.3f} rad. '
+                        f'Bridging to GELLO.'
+                    )
         else:
             # Choose rate limit based on how close we are to GELLO
             max_gap = max(abs(g - p) for g, p in
