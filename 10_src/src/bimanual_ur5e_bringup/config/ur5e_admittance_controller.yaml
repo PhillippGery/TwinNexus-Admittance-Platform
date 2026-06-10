@@ -75,9 +75,9 @@ admittance_controller:
         - 0.3
 
       damping_ratio:
-        - 1.5
-        - 1.5
-        - 1.5
+        - 2.2
+        - 2.2
+        - 2.2
         - 1.2
         - 1.2
         - 1.2
