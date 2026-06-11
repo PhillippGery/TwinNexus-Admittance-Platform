@@ -89,12 +89,11 @@ class GELLOBridge(Node):
         # ── Parameters ────────────────────────────────────────────────────
         self.declare_parameter('mock',            False)
         self.declare_parameter('publish_hz',      500.0)
-        self.declare_parameter('startup_hold_s',  float('inf'))  # hold forever by default
-        self.declare_parameter('max_delta_rad',   0.001)
+        self.declare_parameter('startup_hold_s',  3.0)  # time to hold initial position before bridging to GELLO
         self.declare_parameter('mock_amp_rad',    0.02)
         self.declare_parameter('mock_freq_hz',    0.2)
         self.declare_parameter('bridge_delta_rad',   0.001)   # slow during initial bridge
-        self.declare_parameter('tracking_delta_rad', 0.005)   # fast once locked in
+        self.declare_parameter('tracking_delta_rad', 0.002)   # fast once locked in
         self.declare_parameter('tracking_threshold', 0.05)   # rad — when to switch
         self.declare_parameter('max_initial_delta_rad', 0.3)
         self.declare_parameter('gripper_max_mm', 67.0)
@@ -102,7 +101,6 @@ class GELLOBridge(Node):
         self._mock        = self.get_parameter('mock').value
         pub_hz            = self.get_parameter('publish_hz').value
         self._hold_s      = self.get_parameter('startup_hold_s').value
-        self._max_delta   = self.get_parameter('max_delta_rad').value
         self._mock_amp    = self.get_parameter('mock_amp_rad').value
         self._mock_freq   = self.get_parameter('mock_freq_hz').value
         self._bridge_delta       = self.get_parameter('bridge_delta_rad').value
@@ -123,6 +121,7 @@ class GELLOBridge(Node):
         self._mock_t:        float               = 0.0
         self._mock_center:   list[float] | None  = None
         self._last_gripper = 0.0
+        self.tracking_active: bool               = False
 
         # ── ROS ───────────────────────────────────────────────────────────
         self.create_subscription(JointState, '/joint_states',
@@ -265,8 +264,14 @@ class GELLOBridge(Node):
             # Choose rate limit based on how close we are to GELLO
             max_gap = max(abs(g - p) for g, p in
                         zip(gello_target, self._last_pub))
-            delta = self._bridge_delta if max_gap > self._tracking_threshold \
-                    else self._tracking_delta
+            
+            if max_gap > self._tracking_threshold and not self.tracking_active:
+                delta = self._bridge_delta
+            else:
+                delta = self._tracking_delta
+                if max_gap < self._tracking_threshold/2:
+                    self.tracking_active = True
+            
             target = self._rate_limit_with(self._last_pub, gello_target, delta)
             self._last_pub = target
 
