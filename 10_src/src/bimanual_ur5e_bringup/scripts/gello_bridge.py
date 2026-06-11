@@ -87,7 +87,6 @@ class GELLOBridge(Node):
         super().__init__('gello_bridge')
 
         # ── Parameters ────────────────────────────────────────────────────
-        self.declare_parameter('mock',            False)
         self.declare_parameter('publish_hz',      500.0)
         self.declare_parameter('startup_hold_s',  3.0)  # time to hold initial position before bridging to GELLO
         self.declare_parameter('mock_amp_rad',    0.02)
@@ -98,11 +97,8 @@ class GELLOBridge(Node):
         self.declare_parameter('max_initial_delta_rad', 0.3)
         self.declare_parameter('gripper_max_mm', 67.0)
 
-        self._mock        = self.get_parameter('mock').value
         pub_hz            = self.get_parameter('publish_hz').value
         self._hold_s      = self.get_parameter('startup_hold_s').value
-        self._mock_amp    = self.get_parameter('mock_amp_rad').value
-        self._mock_freq   = self.get_parameter('mock_freq_hz').value
         self._bridge_delta       = self.get_parameter('bridge_delta_rad').value
         self._tracking_delta     = self.get_parameter('tracking_delta_rad').value
         self._tracking_threshold = self.get_parameter('tracking_threshold').value
@@ -118,8 +114,6 @@ class GELLOBridge(Node):
         self._gello_ready:   bool                = False
         self._elapsed:       float               = 0.0
         self._hold_active:   bool                = True
-        self._mock_t:        float               = 0.0
-        self._mock_center:   list[float] | None  = None
         self._last_gripper = 0.0
         self.tracking_active: bool               = False
 
@@ -129,6 +123,7 @@ class GELLOBridge(Node):
         self._pub = self.create_publisher(
                     JointTrajectoryPoint,
                     '/admittance_controller/joint_references', 1)
+        
         self._gripper_pub = self.create_publisher(
             Float32,
             '/right_arm/wsg32_node/cmd_pos',
@@ -139,7 +134,7 @@ class GELLOBridge(Node):
 
         hold_str = f"{self._hold_s:.1f}s" if not math.isinf(self._hold_s) \
                    else "∞ (match GELLO to robot, then restart with startup_hold_s:=3.0)"
-        mode = "MOCK" if self._mock else "LIVE (GELLO)"
+        mode = "LIVE (GELLO)"
         self.get_logger().info(
             f'GELLO bridge [{mode}] @ {pub_hz:.0f}Hz | '
             f'startup_hold={hold_str}'
@@ -194,15 +189,12 @@ class GELLOBridge(Node):
             )
 
             # Init GELLO immediately after we have initial position
-            if not self._mock:
-                ok = self._init_gello()
-                self._gello_ready = ok
-                if not ok:
-                    raise SystemExit(1)
+            ok = self._init_gello()
+            self._gello_ready = ok
+            if not ok:
+                raise SystemExit(1)
 
-        # Mock center
-        if self._mock and self._mock_center is None:
-            self._mock_center = pos.copy()
+
 
     # ── Publish loop ──────────────────────────────────────────────────────────
 
@@ -211,17 +203,15 @@ class GELLOBridge(Node):
             return  # waiting for first joint state
 
         # ── Get GELLO target ──────────────────────────────────────────────
-        if self._mock:
-            gello_target = self._mock_target()
-        else:
-            if not self._gello_ready:
-                return
-            result = self._gello_target()
 
-            if result is None:
-                return
-            gello_target, gripper = result
-            self._last_gripper = gripper
+        if not self._gello_ready:
+            return
+        result = self._gello_target()
+
+        if result is None:
+            return
+        gello_target, gripper = result
+        self._last_gripper = gripper
 
         # ── Debug line: GELLO vs Robot ────────────────────────────────────
         # Printed every 0.5s so you can visually compare before motion starts
@@ -300,15 +290,6 @@ class GELLOBridge(Node):
                 throttle_duration_sec=1.0)
             return self._last_pub, self._last_gripper
     
-
-    def _mock_target(self) -> list[float] | None:
-        if self._mock_center is None:
-            return list(self._current_pos)
-        self._mock_t += self._dt
-        return [
-            c + self._mock_amp * np.sin(2 * np.pi * self._mock_freq * self._mock_t)
-            for c in self._mock_center
-        ]
 
     # ── Safety ────────────────────────────────────────────────────────────────
 
