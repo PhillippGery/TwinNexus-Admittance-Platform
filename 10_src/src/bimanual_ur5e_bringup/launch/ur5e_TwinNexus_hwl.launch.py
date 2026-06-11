@@ -150,18 +150,26 @@ def generate_launch_description():
     #   /admittance_controller/joint_references  (UR5e right joints)
     #   /right_arm/wsg32_node/cmd_pos            (WSG32 right gripper)
     #
-    # FUTURE LEFT ARM: add gello_bridge_left node here with:
-    #   - different GELLO_PORT (left U2D2 serial)
-    #   - different joint_references topic (/left_admittance_controller/...)
-    #   - different gripper topic (/left_arm/wsg32_node/cmd_pos)
     gello_bridge_right = Node(
         package='bimanual_ur5e_bringup',
         executable='gello_bridge.py',
         name='gello_bridge_right',
         parameters=[{
-            'startup_hold_s':         startup_hold_s,
-            'max_initial_delta_rad':  max_initial_delta_rad,
+            # ── GELLO hardware — RIGHT arm ────────────────────────────────
+            'gello_port':     '/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTAO4WDM-if00-port0',
+            'joint_offsets':  [0.0, 3.14159, -1.5708, 4.7124, 7.8540, 4.7124],
+            'joint_signs':    [1.0, 1.0, -1.0, 1.0, 1.0, 1.0],
+            'gripper_config': [7.0, 115.4, 73.6],
+
+            # ── ROS topics — RIGHT arm ────────────────────────────────────
+            'joint_states_topic': '/joint_states',
+            'admittance_topic':   '/admittance_controller/joint_references',
+            'gripper_topic':      '/right_arm/wsg32_node/cmd_pos',
+
+            # ── Control ───────────────────────────────────────────────────
             'publish_hz':             500.0,
+            'startup_hold_s':         3.0,
+            'max_initial_delta_rad':  max_initial_delta_rad,
             'bridge_delta_rad':       0.001,
             'tracking_delta_rad':     0.002,
             'tracking_threshold':     0.05,
@@ -169,6 +177,36 @@ def generate_launch_description():
         output='screen',
         emulate_tty=True,
     )
+
+    # ──left arm  ────────────────────────
+    # gello_bridge_left = Node(
+    #     package='bimanual_ur5e_bringup',
+    #     executable='gello_bridge.py',
+    #     name='gello_bridge_left',
+    #     parameters=[{
+    #         # ── GELLO hardware — LEFT arm (fill after calibration) ────────
+    #         'gello_port':     '/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTXXXXXX-if00-port0',
+    #         'joint_offsets':  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],   # ← from gello_get_offset.py
+    #         'joint_signs':    [1.0, 1.0, -1.0, 1.0, 1.0, 1.0],  # ← verify for left arm
+    #         'gripper_config': [7.0, 0.0, 0.0],                   # ← from gello_get_offset.py
+    #
+    #         # ── ROS topics — LEFT arm ─────────────────────────────────────
+    #         'joint_states_topic': '/left/joint_states',
+    #         'admittance_topic':   '/left_admittance_controller/joint_references',
+    #         'gripper_topic':      '/left_arm/wsg32_node/cmd_pos',
+    #
+    #         # ── Control ───────────────────────────────────────────────────
+    #         'publish_hz':             500.0,
+    #         'startup_hold_s':         3.0,
+    #         'max_initial_delta_rad':  max_initial_delta_rad,
+    #         'bridge_delta_rad':       0.001,
+    #         'tracking_delta_rad':     0.002,
+    #         'tracking_threshold':     0.05,
+    #         'gripper_max_mm':         55.0,
+    #     }],
+    #     output='screen',
+    #     emulate_tty=True,
+    # )
 
     # ── Peripheral bundle ─────────────────────────────────────────────────────
     peripherals = TimerAction(
@@ -232,15 +270,7 @@ def generate_launch_description():
             default_value='false',
             description='Enable RealSense depth streams.',
         ),
-        DeclareLaunchArgument(
-            'startup_hold_s',
-            default_value='3.0',
-            description=(
-                'Seconds GELLO bridge holds initial position before releasing. '
-                'Gives operator time to match GELLO pose to robot. '
-                'Bridge will NOT release until GELLO deltas are within max_initial_delta_rad.'
-            ),
-        ),
+
         DeclareLaunchArgument(
             'max_initial_delta_rad',
             default_value='0.3',
