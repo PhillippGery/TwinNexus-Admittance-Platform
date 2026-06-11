@@ -3,21 +3,52 @@ ur5e_upstream_admittance.launch.py
 -----------------------------------
 TwinNexus full-stack launch — Step 2 of 2.
 
-Prerequisites (must be done first, in order):
-    1. ros2 launch bimanual_ur5e_bringup boot_hw.launch.py   ← connects to UR5e
-    2. Press PLAY on the UR5e teach pendant (remote control)
-    3. THIS FILE                                              ← you are here
+ARCHITECTURE (current: single right arm)
+-----------------------------------------
+                    ┌─────────────────────────────────┐
+                    │         TwinNexus Stack          │
+                    │                                  │
+  GELLO right ──→  │  gello_bridge_right.py           │
+  (FTAO4WDM)       │    ↓ /admittance_controller/     │
+                   │      joint_references             │
+                   │    ↓ /right_arm/wsg32_node/       │
+                   │      cmd_pos                      │
+                   │                                   │
+                   │  admittance_controller ←──────────┼── UR5e right (192.168.1.21)
+                   │  wsg32_node (right)   ←──────────┼── WSG32 right (192.168.1.201)
+                   │  realsense cameras    ←──────────┼── 3x D415/D455
+                   └─────────────────────────────────┘
 
-What this file does, in sequence:
-    1. Unloads any running admittance_controller (clean slate)
-    2. Unloads scaled_joint_trajectory_controller
-    3. Waits post_unload_delay seconds
-    4. Spawns upstream admittance_controller
-    5. After admittance is up: launches cameras, gripper drivers, GELLO bridge
+BIMANUAL EXPANSION (future — add left arm)
+-------------------------------------------
+  GELLO left ──→  gello_bridge_left.py
+                    ↓ /left_admittance_controller/joint_references
+                    ↓ /left_arm/wsg32_node/cmd_pos
+                  admittance_controller_left ← UR5e left (192.168.1.22)
+                  wsg32_node (left)          ← WSG32 left (192.168.1.202)
 
-Aliases (add to ~/.bashrc):
-    alias boot_hw='ros2 launch bimanual_ur5e_bringup boot_hw.launch.py'
-    alias spawnctrl='ros2 launch bimanual_ur5e_bringup ur5e_upstream_admittance.launch.py'
+USAGE
+-----
+  # Step 1 — boot robot (run once per session):
+  boot_hw    # alias: ros2 launch bimanual_ur5e_bringup boot_hw.launch.py
+  # → Press PLAY on teach pendant
+
+  # Step 2 — launch full stack:
+  spawnctrl  # alias: ros2 launch bimanual_ur5e_bringup ur5e_upstream_admittance.launch.py
+
+  # GELLO bridge starts in hold mode — robot does not move.
+  # Watch terminal for:
+  #   GELLO : [...] grip=X.XXX
+  #   Robot : [...] grip=X.XXX
+  #   Delta : [...]
+  # Match GELLO to robot pose until deltas are small (<0.3 rad).
+  # After startup_hold_s (default 5.0s), bridge releases and robot follows GELLO.
+
+PARAMETERS
+----------
+  startup_hold_s       : seconds to hold initial position (default 5.0)
+  max_initial_delta_rad: max GELLO-robot delta before hold releases (default 0.3)
+  peripheral_start_delay: seconds after admittance spawns before peripherals start (default 8.0)
 """
 
 from launch import LaunchDescription
@@ -38,18 +69,19 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
 
     # ── Launch arguments ──────────────────────────────────────────────────────
-    trajectory_controller        = LaunchConfiguration('trajectory_controller')
-    controller_manager           = LaunchConfiguration('controller_manager')
-    switch_timeout               = LaunchConfiguration('switch_timeout')
-    admittance_controller_name   = LaunchConfiguration('admittance_controller_name')
-    controller_spawner_timeout   = LaunchConfiguration('controller_spawner_timeout')
-    admittance_params_file       = LaunchConfiguration('admittance_params_file')
-    post_unload_delay            = LaunchConfiguration('post_unload_delay')
-    peripheral_start_delay       = LaunchConfiguration('peripheral_start_delay')
-    enable_depth                 = LaunchConfiguration('enable_depth')
-    mock_gello                   = LaunchConfiguration('mock_gello')
+    trajectory_controller       = LaunchConfiguration('trajectory_controller')
+    controller_manager          = LaunchConfiguration('controller_manager')
+    switch_timeout              = LaunchConfiguration('switch_timeout')
+    admittance_controller_name  = LaunchConfiguration('admittance_controller_name')
+    controller_spawner_timeout  = LaunchConfiguration('controller_spawner_timeout')
+    admittance_params_file      = LaunchConfiguration('admittance_params_file')
+    post_unload_delay           = LaunchConfiguration('post_unload_delay')
+    peripheral_start_delay      = LaunchConfiguration('peripheral_start_delay')
+    enable_depth                = LaunchConfiguration('enable_depth')
+    startup_hold_s              = LaunchConfiguration('startup_hold_s')
+    max_initial_delta_rad       = LaunchConfiguration('max_initial_delta_rad')
 
-    # ── Step 1 & 2: Controller switching (unchanged from original) ────────────
+    # ── Controller switching ──────────────────────────────────────────────────
 
     admittance_unspawner = Node(
         package='controller_manager',
@@ -85,10 +117,6 @@ def generate_launch_description():
         ],
     )
 
-    # ── Step 3: Peripheral stack (cameras + grippers + GELLO bridge) ──────────
-    # Launched after admittance controller is up, with an additional delay
-    # to let the controller fully initialise before accepting joint references.
-
     # ── Cameras ───────────────────────────────────────────────────────────────
     cameras_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -98,13 +126,10 @@ def generate_launch_description():
                 'realsense_cameras.launch.py',
             ])
         ]),
-        launch_arguments={
-            'enable_depth': enable_depth,
-        }.items(),
+        launch_arguments={'enable_depth': enable_depth}.items(),
     )
 
-    # ── WSG32 grippers ────────────────────────────────────────────────────────
-    # Right arm: 192.168.1.201  Left arm: 192.168.1.202
+    # ── WSG32 right arm gripper ───────────────────────────────────────────────
     gripper_right = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             PathJoinSubstitution([
@@ -120,80 +145,69 @@ def generate_launch_description():
         }.items(),
     )
 
-    gripper_left = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource([
-            PathJoinSubstitution([
-                FindPackageShare('wsg32_driver'),
-                'launch',
-                'wsg32.launch.py',
-            ])
-        ]),
-        launch_arguments={
-            'gripper_ip':   '192.168.1.202',
-            'gripper_name': 'wsg32_left',
-            'namespace':    'left_arm',
-        }.items(),
-    )
-
-    # ── GELLO bridge ──────────────────────────────────────────────────────────
-    gello_bridge = Node(
+    # ── GELLO bridge — RIGHT ARM ──────────────────────────────────────────────
+    # Bridges GELLO right (U2D2: FTAO4WDM) →
+    #   /admittance_controller/joint_references  (UR5e right joints)
+    #   /right_arm/wsg32_node/cmd_pos            (WSG32 right gripper)
+    #
+    # FUTURE LEFT ARM: add gello_bridge_left node here with:
+    #   - different GELLO_PORT (left U2D2 serial)
+    #   - different joint_references topic (/left_admittance_controller/...)
+    #   - different gripper topic (/left_arm/wsg32_node/cmd_pos)
+    gello_bridge_right = Node(
         package='bimanual_ur5e_bringup',
         executable='gello_bridge.py',
-        name='gello_bridge',
+        name='gello_bridge_right',
         parameters=[{
-            'mock':               mock_gello,
-            'publish_hz':         50.0,
-            'mock_amp_rad':       0.02,       # safe default — change manually for testing
-            'mock_start_delay_s': 3.0,
-            'max_delta_rad':      0.01,
+            'startup_hold_s':         startup_hold_s,
+            'max_initial_delta_rad':  max_initial_delta_rad,
+            'publish_hz':             500.0,
+            'bridge_delta_rad':       0.001,
+            'tracking_delta_rad':     0.002,
+            'tracking_threshold':     0.05,
         }],
         output='screen',
         emulate_tty=True,
     )
 
-    # ── Bundle all peripherals behind a timer delay ───────────────────────────
-    # peripheral_start_delay gives the admittance controller time to fully
-    # initialise before cameras and the GELLO bridge start sending data.
+    # ── Peripheral bundle ─────────────────────────────────────────────────────
     peripherals = TimerAction(
         period=peripheral_start_delay,
         actions=[
             GroupAction([
                 cameras_launch,
-                #gripper_right,
-                #gripper_left,
-                gello_bridge,
+                gripper_right,
+                gello_bridge_right,
+                # ── FUTURE: uncomment when left arm hardware arrives ──────────
+                # gripper_left,
+                # gello_bridge_left,
             ])
         ],
     )
 
-    # ── Wire everything together ──────────────────────────────────────────────
+    # ── Launch description ────────────────────────────────────────────────────
     return LaunchDescription([
 
-        # ── Declare arguments ─────────────────────────────────────────────────
+        # ── Arguments ─────────────────────────────────────────────────────────
         DeclareLaunchArgument(
             'trajectory_controller',
             default_value='scaled_joint_trajectory_controller',
-            description='Controller to unload before activating admittance mode.',
         ),
         DeclareLaunchArgument(
             'controller_manager',
             default_value='/controller_manager',
-            description='Controller manager node name.',
         ),
         DeclareLaunchArgument(
             'switch_timeout',
             default_value='5.0',
-            description='Timeout passed to the controller_manager unspawner.',
         ),
         DeclareLaunchArgument(
             'admittance_controller_name',
             default_value='admittance_controller',
-            description='Name of the upstream admittance controller instance.',
         ),
         DeclareLaunchArgument(
             'controller_spawner_timeout',
             default_value='30',
-            description='Timeout used by the controller spawner.',
         ),
         DeclareLaunchArgument(
             'admittance_params_file',
@@ -202,41 +216,43 @@ def generate_launch_description():
                 'config',
                 'ur5e_admittance_controller.yaml',
             ]),
-            description='Parameter file for the upstream admittance controller.',
         ),
         DeclareLaunchArgument(
             'post_unload_delay',
             default_value='1.0',
-            description='Delay between unloading trajectory controller and spawning admittance.',
+            description='Delay between unloading trajectory and spawning admittance.',
         ),
         DeclareLaunchArgument(
             'peripheral_start_delay',
-            default_value='8.0',
-            description=(
-                'Seconds to wait after admittance controller spawns before '
-                'starting cameras, grippers, and GELLO bridge. '
-                'Gives the controller time to fully initialise.'
-            ),
+            default_value='6.0',
+            description='Seconds after admittance spawns before cameras/grippers/GELLO start.',
         ),
         DeclareLaunchArgument(
             'enable_depth',
             default_value='false',
-            description='Enable RealSense depth streams (increases USB3 bandwidth).',
+            description='Enable RealSense depth streams.',
         ),
         DeclareLaunchArgument(
-            'mock_gello',
-            default_value='false',
+            'startup_hold_s',
+            default_value='3.0',
             description=(
-                'Run GELLO bridge in mock mode (sine wave). '
-                'Set true for pipeline testing without GELLO hardware.'
+                'Seconds GELLO bridge holds initial position before releasing. '
+                'Gives operator time to match GELLO pose to robot. '
+                'Bridge will NOT release until GELLO deltas are within max_initial_delta_rad.'
+            ),
+        ),
+        DeclareLaunchArgument(
+            'max_initial_delta_rad',
+            default_value='0.3',
+            description=(
+                'Maximum GELLO-robot joint delta (rad) allowed before hold releases. '
+                '0.3 rad ≈ 17°. Prevents robot from jumping if GELLO is far from robot pose.'
             ),
         ),
 
-        # ── Execution sequence ────────────────────────────────────────────────
-        # 1. Unload any running admittance_controller
+        # ── Execution sequence ─────────────────────────────────────────────────
         admittance_unspawner,
 
-        # 2. On exit: unload trajectory controller
         RegisterEventHandler(
             OnProcessExit(
                 target_action=admittance_unspawner,
@@ -244,7 +260,6 @@ def generate_launch_description():
             )
         ),
 
-        # 3. On exit: wait post_unload_delay, then spawn admittance controller
         RegisterEventHandler(
             OnProcessExit(
                 target_action=unspawner,
@@ -257,7 +272,6 @@ def generate_launch_description():
             )
         ),
 
-        # 4. On exit: wait peripheral_start_delay, then launch everything else
         RegisterEventHandler(
             OnProcessExit(
                 target_action=spawner,
