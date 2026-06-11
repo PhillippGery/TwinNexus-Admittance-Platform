@@ -39,6 +39,7 @@ from rclpy.node import Node
 from trajectory_msgs.msg import JointTrajectoryPoint
 from sensor_msgs.msg import JointState
 from builtin_interfaces.msg import Duration
+from std_msgs.msg import Float32
 
 # Add gello_software to path
 GELLO_PATH = os.path.expanduser(
@@ -96,6 +97,7 @@ class GELLOBridge(Node):
         self.declare_parameter('tracking_delta_rad', 0.005)   # fast once locked in
         self.declare_parameter('tracking_threshold', 0.05)   # rad — when to switch
         self.declare_parameter('max_initial_delta_rad', 0.3)
+        self.declare_parameter('gripper_max_mm', 67.0)
 
         self._mock        = self.get_parameter('mock').value
         pub_hz            = self.get_parameter('publish_hz').value
@@ -107,6 +109,7 @@ class GELLOBridge(Node):
         self._tracking_delta     = self.get_parameter('tracking_delta_rad').value
         self._tracking_threshold = self.get_parameter('tracking_threshold').value
         self._max_initial_delta  = self.get_parameter('max_initial_delta_rad').value
+        self._gripper_max_mm = self.get_parameter('gripper_max_mm').value
         self._dt          = 1.0 / pub_hz
 
         # ── State ─────────────────────────────────────────────────────────
@@ -119,13 +122,20 @@ class GELLOBridge(Node):
         self._hold_active:   bool                = True
         self._mock_t:        float               = 0.0
         self._mock_center:   list[float] | None  = None
+        self._last_gripper = 0.0
 
         # ── ROS ───────────────────────────────────────────────────────────
         self.create_subscription(JointState, '/joint_states',
                                  self._cb_joint_states, 1)
         self._pub = self.create_publisher(
-            JointTrajectoryPoint,
-            '/admittance_controller/joint_references', 1)
+                    JointTrajectoryPoint,
+                    '/admittance_controller/joint_references', 1)
+        self._gripper_pub = self.create_publisher(
+            Float32,
+            '/right_arm/wsg32_node/cmd_pos',
+            1
+        )
+        
         self.create_timer(self._dt, self._publish)
 
         hold_str = f"{self._hold_s:.1f}s" if not math.isinf(self._hold_s) \
@@ -207,9 +217,12 @@ class GELLOBridge(Node):
         else:
             if not self._gello_ready:
                 return
-            gello_target = self._gello_target()
-            if gello_target is None:
+            result = self._gello_target()
+
+            if result is None:
                 return
+            gello_target, gripper = result
+            self._last_gripper = gripper
 
         # ── Debug line: GELLO vs Robot ────────────────────────────────────
         # Printed every 0.5s so you can visually compare before motion starts
@@ -257,6 +270,10 @@ class GELLOBridge(Node):
             target = self._rate_limit_with(self._last_pub, gello_target, delta)
             self._last_pub = target
 
+            g_msg = Float32()
+            g_msg.data = (1.0 - gripper) * self._gripper_max_mm
+            self._gripper_pub.publish(g_msg)
+
         # ── Publish ───────────────────────────────────────────────────────
         msg = JointTrajectoryPoint()
         msg.positions  = target
@@ -266,15 +283,18 @@ class GELLOBridge(Node):
 
     # ── Target generators ─────────────────────────────────────────────────────
 
-    def _gello_target(self) -> list[float] | None:
+    def _gello_target(self) -> tuple[list[float], float] | None:
         try:
             state = self._gello.act({})
-            return state[:6].tolist()
+            joints  = state[:6].tolist()
+            gripper = float(state[6])   # 0.0=open, 1.0=closed
+            return joints, gripper
         except Exception as e:
             self.get_logger().warn(
                 f'GELLO read error: {e} — holding last position',
                 throttle_duration_sec=1.0)
-            return self._last_pub   # return last good target, not None
+            return self._last_pub, self._last_gripper
+    
 
     def _mock_target(self) -> list[float] | None:
         if self._mock_center is None:
