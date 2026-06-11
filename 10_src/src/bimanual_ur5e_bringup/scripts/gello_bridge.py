@@ -135,7 +135,7 @@ class GELLOBridge(Node):
             '/right_arm/wsg32_node/cmd_pos',
             1
         )
-        
+
         self.create_timer(self._dt, self._publish)
 
         hold_str = f"{self._hold_s:.1f}s" if not math.isinf(self._hold_s) \
@@ -227,11 +227,11 @@ class GELLOBridge(Node):
         # ── Debug line: GELLO vs Robot ────────────────────────────────────
         # Printed every 0.5s so you can visually compare before motion starts
         self.get_logger().info(
-            f'\n'
-            f'  GELLO : {[f"{v:+.3f}" for v in gello_target]}\n'
-            f'  Robot : {[f"{v:+.3f}" for v in self._current_pos]}\n'
-            f'  Delta : {[f"{g-r:+.3f}" for g, r in zip(gello_target, self._current_pos)]}',
-            throttle_duration_sec=0.5
+        f'\n'
+        f'  GELLO : {[f"{v:+.3f}" for v in gello_target]} grip={gripper:.3f}\n'
+        f'  Robot : {[f"{v:+.3f}" for v in self._current_pos]} grip={self._last_gripper:.3f}\n'
+        f'  Delta : {[f"{g-r:+.3f}" for g, r in zip(gello_target, self._current_pos)]}',
+        throttle_duration_sec=0.5
         )
 
         # ── Startup hold ──────────────────────────────────────────────────
