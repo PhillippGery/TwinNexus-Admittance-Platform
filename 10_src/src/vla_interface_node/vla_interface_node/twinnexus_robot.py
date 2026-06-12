@@ -45,6 +45,7 @@ from trajectory_msgs.msg import JointTrajectoryPoint
 from lerobot.robots.config import RobotConfig
 from lerobot.robots.robot import Robot
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,11 +65,16 @@ IMG_W = 1280
 IMG_C = 3
 
 # ── Control parameters ────────────────────────────────────────────────────────
-LOOKAHEAD_NS  = 200_000_000   # 200ms rolling horizon for admittance controller
-MAX_DELTA_RAD = 0.01          # max joint delta per send_action call (rad)
-MAX_DELTA_M   = 0.001         # max gripper delta per send_action call (m)
+LOOKAHEAD_NS  = 2_000_000   # 200ms rolling horizon for admittance controller
+
+INFERENCE_HZ  = 30       # Hz — match to your actual LeRobot record/eval rate
+MAX_VEL_RAD_S = 1.0      # rad/s — comfortable joint velocity
+
+MAX_DELTA_RAD = MAX_VEL_RAD_S / INFERENCE_HZ   # = 0.033 rad/call at 30Hz
+MAX_DELTA_M   = 0.080    / INFERENCE_HZ         # = 0.0017 m/call at 30Hz
 
 
+@RobotConfig.register_subclass("twinnexus")
 @dataclass
 class TwinNexusRobotConfig(RobotConfig):
     """
@@ -88,7 +94,7 @@ class TwinNexusRobotConfig(RobotConfig):
 
     # ── Camera serial numbers (pyrealsense2 direct — no ROS) ──────────────────
     # Set to "" to disable a camera.
-    wrist_left_serial:  str = "151322062583"   # D415 left wrist
+    wrist_left_serial:  str = "" # deatviated for first aprach"151322062583"   # D415 left wrist
     wrist_right_serial: str = "151422060684"   # D415 right wrist
     overhead_serial:    str = "146222254752"   # D455 overhead
 

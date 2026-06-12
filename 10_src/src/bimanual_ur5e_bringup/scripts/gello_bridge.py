@@ -43,10 +43,13 @@ import math
 import numpy as np
 import rclpy
 from rclpy.node import Node
+import std_msgs
 from trajectory_msgs.msg import JointTrajectoryPoint
 from sensor_msgs.msg import JointState
 from builtin_interfaces.msg import Duration
-from std_msgs.msg import Float32
+from std_msgs.msg import Float32, Bool
+from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
+
 
 # Add gello_software to path
 GELLO_PATH = os.path.expanduser(
@@ -108,7 +111,7 @@ class GELLOBridge(Node):
         self.declare_parameter('bridge_delta_rad',       0.001)
         self.declare_parameter('tracking_delta_rad',     0.002)
         self.declare_parameter('tracking_threshold',      0.05)
-        self.declare_parameter('gripper_max_mm',         55.0)
+        self.declare_parameter('gripper_max_mm',         67.0)
 
         # ── Read parameters ───────────────────────────────────────────────
         self._gello_port     = self.get_parameter('gello_port').value
@@ -146,13 +149,29 @@ class GELLOBridge(Node):
         self._hold_active:   bool                = True
         self._last_gripper:  float               = 0.0
         self.tracking_active: bool               = False
+        self._paused: bool                        = False
+        self._home_target: list[float] | None = None
 
         # ── ROS interfaces ────────────────────────────────────────────────
+
+
+        go_home_qos = QoSProfile(
+            depth=1,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=ReliabilityPolicy.RELIABLE,
+        )
+        
         self.create_subscription(
             JointState,
             joint_states_topic,
             self._cb_joint_states,
             1,
+        )
+        self.create_subscription(
+            JointState,
+            '~/go_home',
+            self._cb_go_home,
+            go_home_qos,
         )
         self._pub = self.create_publisher(
             JointTrajectoryPoint,
@@ -238,19 +257,43 @@ class GELLOBridge(Node):
     # ── Publish loop ──────────────────────────────────────────────────────────
 
     def _publish(self):
+
         if self._initial_pos is None:
             return
+        
         if not self._gello_ready:
+            return
+        
+        # ── Go home mode ──────────────────────────────────────────────────────
+        if self._home_target is not None:
+            if self._last_pub is None:
+                self._last_pub = list(self._current_pos)
+            max_gap = max(abs(h - p) for h, p in zip(self._home_target, self._last_pub))
+            if max_gap < 0.01:
+                self._home_target = None
+                self._hold_active = True
+                self._elapsed     = 0.0
+                self.get_logger().info('Home reached. Hold active — match GELLO to resume.')
+                target = list(self._last_pub)
+            else:
+                target = self._rate_limit_with(self._last_pub, self._home_target, self._bridge_delta)
+                self._last_pub = target
+            msg = JointTrajectoryPoint()
+            msg.positions       = target
+            msg.velocities      = [0.0] * 6
+            msg.time_from_start = Duration(sec=0, nanosec=LOOKAHEAD_NS)
+            self._pub.publish(msg)
             return
 
         result = self._gello_target()
         if result is None:
-            return
+            return     
+        
         gello_target, gripper = result
         self._last_gripper = gripper
 
         # ── Debug line — only shown before tracking is active ─────────────
-        if not self.tracking_active:
+        if self._hold_active:
             self.get_logger().info(
                 f'\n'
                 f'  GELLO : {[f"{v:+.3f}" for v in gello_target]} grip={gripper:.3f}\n'
@@ -338,6 +381,20 @@ class GELLOBridge(Node):
             d = max(-max_d, min(max_d, new - prev))
             limited.append(prev + d)
         return limited
+
+    
+
+    def _cb_go_home(self, msg: JointState) -> None:
+        self._home_target    = list(msg.position[:6])
+        self._initial_pos    = list(msg.position[:6])
+        self._hold_active    = False
+        self._elapsed        = 0.0
+        self.tracking_active = False
+        if self._current_pos is not None:
+            self._last_pub = list(self._current_pos)
+        self.get_logger().info(
+            f'Go home target: {[f"{v:.3f}" for v in self._home_target]}'
+        )
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
