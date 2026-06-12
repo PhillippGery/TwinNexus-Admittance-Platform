@@ -18,7 +18,7 @@ from std_msgs.msg import Float32
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-HOME_JOINTS     = [1.7228, -1.8912, -1.1980, -1.6220, -4.7100, -1.6285]
+HOME_JOINTS     = [1.611, -1.392, -1.494, -1.627, -4.61, -1.732]
 HOME_GRIPPER_MM = 50.0
 
 GELLO_HOME_TOPIC  = '/gello_bridge_right/go_home'
