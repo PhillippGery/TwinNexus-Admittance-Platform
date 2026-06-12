@@ -117,17 +117,17 @@ def generate_launch_description():
         ],
     )
 
-    # ── Cameras ───────────────────────────────────────────────────────────────
-    cameras_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource([
-            PathJoinSubstitution([
-                FindPackageShare('bimanual_ur5e_bringup'),
-                'launch',
-                'realsense_cameras.launch.py',
-            ])
-        ]),
-        launch_arguments={'enable_depth': enable_depth}.items(),
-    )
+    # # ── Cameras ───────────────────────────────────────────────────────────────
+    # cameras_launch = IncludeLaunchDescription(
+    #     PythonLaunchDescriptionSource([
+    #         PathJoinSubstitution([
+    #             FindPackageShare('bimanual_ur5e_bringup'),
+    #             'launch',
+    #             'realsense_cameras.launch.py',
+    #         ])
+    #     ]),
+    #     launch_arguments={'enable_depth': enable_depth}.items(),
+    # )
 
     # ── WSG32 right arm gripper ───────────────────────────────────────────────
     gripper_right = IncludeLaunchDescription(
@@ -213,7 +213,7 @@ def generate_launch_description():
         period=peripheral_start_delay,
         actions=[
             GroupAction([
-                cameras_launch,
+                # cameras_launch,
                 gripper_right,
                 gello_bridge_right,
                 # ── FUTURE: uncomment when left arm hardware arrives ──────────
