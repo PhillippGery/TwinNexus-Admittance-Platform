@@ -170,8 +170,8 @@ def generate_launch_description():
             'publish_hz':             500.0,
             'startup_hold_s':         3.0,
             'max_initial_delta_rad':  max_initial_delta_rad,
-            'bridge_delta_rad':       0.001,
-            'tracking_delta_rad':     0.002,
+            'bridge_delta_rad':       0.0006,
+            'tracking_delta_rad':     0.003,
             'tracking_threshold':     0.05,
         }],
         output='screen',
@@ -273,10 +273,10 @@ def generate_launch_description():
 
         DeclareLaunchArgument(
             'max_initial_delta_rad',
-            default_value='0.3',
+            default_value='0.5',
             description=(
                 'Maximum GELLO-robot joint delta (rad) allowed before hold releases. '
-                '0.3 rad ≈ 17°. Prevents robot from jumping if GELLO is far from robot pose.'
+                '0.5 rad ≈ 28.6°. Prevents robot from jumping if GELLO is far from robot pose.'
             ),
         ),
 
