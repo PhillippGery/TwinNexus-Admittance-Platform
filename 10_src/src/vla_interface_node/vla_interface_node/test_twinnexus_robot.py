@@ -27,7 +27,7 @@ import numpy as np
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from twinnexus_robot import TwinNexusRobot, TwinNexusRobotConfig
+from lerobot.robots.twinnexus import TwinNexusRobot, TwinNexusRobotConfig
 
 
 def check(label: str, condition: bool, detail: str = "") -> bool:

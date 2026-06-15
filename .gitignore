@@ -32,3 +32,6 @@ Makefile
 # Packaging
 *.egg-info/
 dist/
+# Large dataset files — push to HuggingFace Hub instead
+30_data/**/*.mp4
+30_data/**/*.parquet

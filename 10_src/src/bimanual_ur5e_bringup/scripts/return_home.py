@@ -59,7 +59,7 @@ def main():
     gripper_pub.publish(g_msg)
 
     # Drain messages
-    deadline = time.time() + 1.0
+    deadline = time.time() + 2.0
     while time.time() < deadline:
         executor.spin_once(timeout_sec=0.05)
 

@@ -46,6 +46,8 @@ from lerobot.robots.config import RobotConfig
 from lerobot.robots.robot import Robot
 
 
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -60,8 +62,8 @@ UR5E_JOINTS = [
 ]
 
 # ── Camera image shape ────────────────────────────────────────────────────────
-IMG_H = 720
-IMG_W = 1280
+IMG_H = 480
+IMG_W = 640
 IMG_C = 3
 
 # ── Control parameters ────────────────────────────────────────────────────────
@@ -96,6 +98,7 @@ class TwinNexusRobotConfig(RobotConfig):
     # Set to "" to disable a camera.
     wrist_left_serial:  str = "" # deatviated for first aprach"151322062583"   # D415 left wrist
     wrist_right_serial: str = "151422060684"   # D415 right wrist
+
     overhead_serial:    str = "146222254752"   # D455 overhead
 
     # ── Safety ────────────────────────────────────────────────────────────────
@@ -323,28 +326,32 @@ class TwinNexusRobot(Robot):
         pass
 
     # ── LeRobot interface: observation ────────────────────────────────────────
-
     def get_observation(self) -> dict[str, Any]:
         if not self._connected:
             raise RuntimeError(f"{self} is not connected.")
 
+        # ── Snapshot state under lock — fast, minimal time held ──────────────
         with self._lock:
             if self._joint_pos is None:
                 raise RuntimeError(f"{self} has not received joint states yet.")
+            joint_pos  = self._joint_pos.copy()
+            gripper    = self._gripper_pos if self._gripper_pos is not None else 0.0
+            frames_snap = {k: v.copy() if v is not None else None
+                        for k, v in self._frames.items()}
 
-            gripper = self._gripper_pos if self._gripper_pos is not None else 0.0
-            state = np.append(self._joint_pos, gripper).astype(np.float32)
-            obs: dict[str, Any] = {"observation.state": state}
+        # ── Build observation outside lock ────────────────────────────────────
+        state = np.append(joint_pos, gripper).astype(np.float32)
+        obs: dict[str, Any] = {"observation.state": state}
 
-            for cam_name in ("wrist_left", "wrist_right", "overhead"):
-                serial_attr = f"{cam_name}_serial"
-                if not getattr(self.config, serial_attr, ""):
-                    continue
-                frame = self._frames[cam_name]
-                obs[f"observation.images.{cam_name}"] = (
-                    frame.copy() if frame is not None
-                    else np.zeros((IMG_H, IMG_W, IMG_C), dtype=np.uint8)
-                )
+        for cam_name in ("wrist_left", "wrist_right", "overhead"):
+            serial_attr = f"{cam_name}_serial"
+            if not getattr(self.config, serial_attr, ""):
+                continue
+            frame = frames_snap.get(cam_name)
+            obs[f"observation.images.{cam_name}"] = (
+                frame if frame is not None
+                else np.zeros((IMG_H, IMG_W, IMG_C), dtype=np.uint8)
+            )
 
         return obs
 
