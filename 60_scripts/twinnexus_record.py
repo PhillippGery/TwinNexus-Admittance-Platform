@@ -29,6 +29,7 @@ import os
 import numpy as np
 import torch
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.configs.video import VideoEncoderConfig
 import subprocess
 import threading
 
@@ -162,7 +163,16 @@ def main():
     #     image_writer_processes=0,    # ← use threads not processes
     # )
 
-    from lerobot.configs.video import VideoEncoderConfig
+    
+
+    # dataset = LeRobotDataset.create(
+    #     repo_id=args.repo_id,
+    #     fps=args.fps,
+    #     features=features,
+    #     root=os.path.join(args.root, args.repo_id) if args.root else None,
+    #     robot_type="twinnexus",
+    #     image_writer_threads=4,
+    # )
 
     dataset = LeRobotDataset.create(
         repo_id=args.repo_id,
@@ -170,7 +180,9 @@ def main():
         features=features,
         root=os.path.join(args.root, args.repo_id) if args.root else None,
         robot_type="twinnexus",
-        image_writer_threads=4,
+        streaming_encoding=True,
+        encoder_threads=4,
+        encoder_queue_maxsize=200,
     )
 
 
@@ -195,8 +207,6 @@ def main():
             stop_episode = threading.Event()
             threading.Thread(target=lambda: (input(), stop_episode.set()), daemon=True).start()
             print("  Press Enter to stop episode early...")
-
-                    
 
             # Record episode
             print(f"  Recording {args.episode_time_s}s ... (move GELLO now)")
