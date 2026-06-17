@@ -153,6 +153,7 @@ class TwinNexusRobot(Robot):
         self._ros_node:    Node | None = None
         self._executor:    MultiThreadedExecutor | None = None
         self._spin_thread: threading.Thread | None = None
+        self._spin_stop:   threading.Event = threading.Event()
         self._connected = False
 
     # ── LeRobot interface: features ───────────────────────────────────────────
@@ -244,8 +245,9 @@ class TwinNexusRobot(Robot):
 
         self._executor = MultiThreadedExecutor(num_threads=2)
         self._executor.add_node(self._ros_node)
+        self._spin_stop.clear()
         self._spin_thread = threading.Thread(
-            target=self._executor.spin,
+            target=self._spin_loop,
             daemon=True,
             name="twinnexus_ros_spin",
         )
@@ -285,6 +287,41 @@ class TwinNexusRobot(Robot):
             f"Cameras: {[k for k in active_cams if self._frames[k] is not None]}"
         )
 
+    def pause_for_save(self) -> None:
+        """Pause camera polling and ROS 2 spin before dataset.save_episode().
+
+        Both threads compete heavily for the Python GIL, which starves the
+        image-writer threads and compute_episode_stats.  Pausing them lets
+        save_episode() run 5-10× faster.  The pyrealsense2 pipelines and the
+        ROS 2 executor stay alive; resume_from_save() restarts the threads
+        instantly with no reconnect overhead.
+        """
+        # Stop camera thread
+        self._camera_running = False
+        if self._camera_thread and self._camera_thread.is_alive():
+            self._camera_thread.join(timeout=2.0)
+
+        # Stop ROS 2 spin thread
+        self._spin_stop.set()
+        if self._spin_thread and self._spin_thread.is_alive():
+            self._spin_thread.join(timeout=2.0)
+
+    def resume_from_save(self) -> None:
+        """Restart camera and ROS 2 spin threads after pause_for_save()."""
+        # Restart ROS 2 spin
+        self._spin_stop.clear()
+        self._spin_thread = threading.Thread(
+            target=self._spin_loop, daemon=True, name="twinnexus_ros_spin"
+        )
+        self._spin_thread.start()
+
+        # Restart camera
+        self._camera_running = True
+        self._camera_thread = threading.Thread(
+            target=self._camera_loop, daemon=True, name="camera-loop"
+        )
+        self._camera_thread.start()
+
     def disconnect(self) -> None:
         if not self._connected:
             return
@@ -304,7 +341,10 @@ class TwinNexusRobot(Robot):
                     pass
                 self._rs_pipelines[cam_name] = None
 
-        # Stop ROS 2
+        # Stop ROS 2 spin thread, then shut down executor
+        self._spin_stop.set()
+        if self._spin_thread and self._spin_thread.is_alive():
+            self._spin_thread.join(timeout=2.0)
         if self._executor:
             self._executor.shutdown(timeout_sec=1.0)
         if self._ros_node:
@@ -403,6 +443,13 @@ class TwinNexusRobot(Robot):
 
         return {"action": np.array(safe_joints + [safe_gripper], dtype=np.float32)}
 
+    # ── ROS 2 spin loop ────────────────────────────────────────────────────────
+
+    def _spin_loop(self) -> None:
+        """Drive the ROS 2 executor in a loop that can be paused via _spin_stop."""
+        while not self._spin_stop.is_set():
+            self._executor.spin_once(timeout_sec=0.01)
+
     # ── Camera loop (pyrealsense2 direct) ─────────────────────────────────────
 
     def _camera_loop(self) -> None:
@@ -413,6 +460,7 @@ class TwinNexusRobot(Robot):
         the thread stays responsive to shutdown signals.
         """
         while self._camera_running:
+            time.sleep(0)  # yield GIL so image-writer / async threads can run
             for cam_name, pipeline in self._rs_pipelines.items():
                 if pipeline is None:
                     continue

@@ -21,6 +21,7 @@ Controls during recording:
 """
 
 import argparse
+import select
 import time
 import sys
 import logging
@@ -31,7 +32,6 @@ import torch
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.configs.video import VideoEncoderConfig
 import subprocess
-import threading
 
 
 
@@ -174,19 +174,22 @@ def main():
     #     image_writer_threads=4,
     # )
 
-    # encoder_queue_maxsize: large enough to buffer the full episode even if the
-    # encoder threads are temporarily slow (e.g. during GIL contention from ROS2/
-    # pyrealsense2 threads). 600 = 25s @ 24fps; encoder catches up after save_episode.
+    # Non-streaming mode: write PNGs asynchronously during recording, then
+    # batch-encode to MP4 with h264_nvenc at save_episode() using parallel
+    # processes (one per camera). This avoids GIL contention with pyrealsense2/
+    # ROS2 threads and makes save_episode() take ~3s instead of ~60s.
     dataset = LeRobotDataset.create(
         repo_id=args.repo_id,
         fps=args.fps,
         features=features,
         root=os.path.join(args.root, args.repo_id) if args.root else None,
         robot_type="twinnexus",
-        streaming_encoding=True,
-        encoder_threads=4,
-        encoder_queue_maxsize=600,
-        camera_encoder=VideoEncoderConfig(vcodec="auto", g=16),
+        image_writer_threads=8,
+        image_writer_processes=0,
+        # h264/fast: software encoder, works in parallel worker processes
+        # (h264_nvenc fails because subprocess workers have no CUDA context).
+        # At preset=fast it encodes 640x480 at 200+fps → ~3s for a 30s episode.
+        camera_encoder=VideoEncoderConfig(vcodec="h264", preset="fast", g=16),
     )
 
 
@@ -208,8 +211,6 @@ def main():
                 robot.get_observation()
                 time.sleep(1.0 / args.fps)
 
-            stop_episode = threading.Event()
-            threading.Thread(target=lambda: (input(), stop_episode.set()), daemon=True).start()
             print("  Press Enter to stop episode early...")
 
             # Record episode
@@ -225,7 +226,9 @@ def main():
                 elapsed = now - episode_start
                 if elapsed >= args.episode_time_s:
                     break
-                if stop_episode.is_set():
+                # Non-blocking check: user pressed Enter → stop episode early
+                if select.select([sys.stdin], [], [], 0)[0]:
+                    sys.stdin.readline()   # consume the newline
                     print("\n  Episode stopped early.")
                     break
 
@@ -270,7 +273,11 @@ def main():
             #wait 0.5s for the go_home command to execute before starting the reset timer
             time.sleep(0.5)  # wait a bit for the go_home command to execute
 
-            # Save episode and stop tiem for savinhg (includes async encoding time)
+            # Pause camera + ROS 2 spin to free the GIL.
+            # Both threads compete heavily for it, which starves the image-writer
+            # threads and compute_episode_stats (10-70× slower under contention).
+            robot.pause_for_save()
+
             t_save_start = time.perf_counter()
             print("  Saving episode ...")
             dataset.save_episode()
@@ -278,6 +285,9 @@ def main():
                   f"Total episodes: {dataset.num_episodes}")
             t_save_end = time.perf_counter()
             print(f"  Save time: {t_save_end - t_save_start:.2f}s")
+
+            # Restart camera + ROS 2 for the reset / next episode
+            robot.resume_from_save()
 
             episode_idx += 1
 
