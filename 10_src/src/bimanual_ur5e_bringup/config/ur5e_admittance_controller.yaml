@@ -61,7 +61,7 @@ admittance_controller:
       selected_axes:
         - true
         - true
-        - false
+        - true
         - true
         - true
         - true

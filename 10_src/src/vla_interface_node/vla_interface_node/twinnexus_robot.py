@@ -25,7 +25,10 @@ Usage:
         robot.send_action({"action": obs["observation.state"]})
 """
 
+import importlib.util
 import logging
+import os
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -67,13 +70,23 @@ IMG_W = 640
 IMG_C = 3
 
 # ── Control parameters ────────────────────────────────────────────────────────
-LOOKAHEAD_NS  = 2_000_000   # 200ms rolling horizon for admittance controller
+LOOKAHEAD_NS  = 20_000_000  # 20ms rolling horizon — covers actual thread jitter
 
-INFERENCE_HZ  = 30       # Hz — match to your actual LeRobot record/eval rate
-MAX_VEL_RAD_S = 1.0      # rad/s — comfortable joint velocity
+# 500Hz interpolation thread — mirrors GELLO bridge architecture.
+# Policy (30Hz) sets a target; the thread smoothly moves toward it.
+# Velocities are in rad/s so the speed is correct regardless of actual thread
+# timing (Python sleep is imprecise; per-step deltas would cause speed errors).
+INTERP_HZ           = 500
+TRACKING_VEL_RAD_S  = 1.0    # rad/s — matches GELLO tracking_delta*500Hz
+GO_HOME_VEL_RAD_S   = 0.5    # rad/s — matches GELLO bridge_delta*500Hz
+HOME_CONVERGENCE_RAD = 0.01  # rad   — matches GELLO bridge threshold
 
-MAX_DELTA_RAD = MAX_VEL_RAD_S / INFERENCE_HZ   # = 0.033 rad/call at 30Hz
-MAX_DELTA_M   = 0.080    / INFERENCE_HZ         # = 0.0017 m/call at 30Hz
+# Single source of truth for home position lives in return_home.py.
+# go_home() loads it via importlib so the values are never duplicated.
+_RETURN_HOME_PY = os.path.expanduser(
+    "~/TwinNexus-Admittance-Platform/10_src/src/"
+    "bimanual_ur5e_bringup/scripts/return_home.py"
+)
 
 
 @RobotConfig.register_subclass("twinnexus")
@@ -101,10 +114,6 @@ class TwinNexusRobotConfig(RobotConfig):
 
     overhead_serial:    str = "146222254752"   # D455 overhead
 
-    # ── Safety ────────────────────────────────────────────────────────────────
-    max_delta_rad: float = MAX_DELTA_RAD
-    max_delta_m:   float = MAX_DELTA_M
-
     # LeRobot base class field
     calibration_dir: Path | None = None
 
@@ -127,10 +136,20 @@ class TwinNexusRobot(Robot):
 
         # ── State cache ───────────────────────────────────────────────────────
         self._lock = threading.Lock()
-        self._joint_pos:         np.ndarray | None = None
-        self._gripper_pos:       float | None = None
-        self._last_pub_joints:   list[float] | None = None
-        self._last_pub_gripper:  float | None = None
+        self._joint_pos:   np.ndarray | None = None
+        self._gripper_pos: float | None = None
+
+        # ── 500Hz interpolation (ROS2 timer) ─────────────────────────────────────
+        # Policy sets _target_*; the ROS2 timer callback smoothly moves toward it.
+        # While _target_joints is None the callback is a no-op (safe during
+        # recording where the GELLO bridge owns the admittance controller).
+        self._target_joints:      list[float] | None = None
+        self._target_gripper:     float | None = None
+        self._last_interp_joints: list[float] | None = None  # last commanded pos
+        self._interp_vel:         float = TRACKING_VEL_RAD_S
+        self._interp_timer        = None   # rclpy.Timer — created in connect()
+        self._t_last_interp:      float = 0.0
+        self._interp_last_joints: list[float] | None = None
 
         # Camera frames — keyed by camera name
         self._frames: dict[str, np.ndarray | None] = {
@@ -243,7 +262,14 @@ class TwinNexusRobot(Robot):
             1,
         )
 
-        self._executor = MultiThreadedExecutor(num_threads=2)
+        # 500Hz ROS2 timer — driven by executor, far more precise than time.sleep()
+        self._t_last_interp = time.perf_counter()
+        self._interp_timer = self._ros_node.create_timer(
+            1.0 / INTERP_HZ,
+            self._interp_callback,
+        )
+
+        self._executor = MultiThreadedExecutor(num_threads=4)
         self._executor.add_node(self._ros_node)
         self._spin_stop.clear()
         self._spin_thread = threading.Thread(
@@ -288,34 +314,36 @@ class TwinNexusRobot(Robot):
         )
 
     def pause_for_save(self) -> None:
-        """Pause camera polling and ROS 2 spin before dataset.save_episode().
+        """Pause camera and ROS 2 spin (+ interp timer) before dataset.save_episode().
 
-        Both threads compete heavily for the Python GIL, which starves the
-        image-writer threads and compute_episode_stats.  Pausing them lets
-        save_episode() run 5-10× faster.  The pyrealsense2 pipelines and the
-        ROS 2 executor stay alive; resume_from_save() restarts the threads
-        instantly with no reconnect overhead.
+        Both compete heavily for the GIL and starve the image-writer threads and
+        compute_episode_stats.  Cancelling the timer also stops 500Hz publishes
+        so the admittance controller sits quietly during the save.
         """
-        # Stop camera thread
         self._camera_running = False
         if self._camera_thread and self._camera_thread.is_alive():
             self._camera_thread.join(timeout=2.0)
 
-        # Stop ROS 2 spin thread
+        if self._interp_timer is not None:
+            self._interp_timer.cancel()
+
         self._spin_stop.set()
         if self._spin_thread and self._spin_thread.is_alive():
             self._spin_thread.join(timeout=2.0)
 
     def resume_from_save(self) -> None:
-        """Restart camera and ROS 2 spin threads after pause_for_save()."""
-        # Restart ROS 2 spin
+        """Restart camera and ROS 2 spin (+ interp timer) after pause_for_save()."""
+        self._t_last_interp = time.perf_counter()
+
         self._spin_stop.clear()
         self._spin_thread = threading.Thread(
             target=self._spin_loop, daemon=True, name="twinnexus_ros_spin"
         )
         self._spin_thread.start()
 
-        # Restart camera
+        if self._interp_timer is not None:
+            self._interp_timer.reset()
+
         self._camera_running = True
         self._camera_thread = threading.Thread(
             target=self._camera_loop, daemon=True, name="camera-loop"
@@ -327,10 +355,12 @@ class TwinNexusRobot(Robot):
             return
         self._connected = False
 
-        # Stop camera thread
         self._camera_running = False
         if self._camera_thread:
             self._camera_thread.join(timeout=2.0)
+
+        if self._interp_timer is not None:
+            self._interp_timer.cancel()
 
         # Stop pyrealsense2 pipelines
         for cam_name, pipeline in self._rs_pipelines.items():
@@ -398,6 +428,7 @@ class TwinNexusRobot(Robot):
     # ── LeRobot interface: action ─────────────────────────────────────────────
 
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
+        """Update the interpolation target.  The 500Hz thread publishes smoothly."""
         if not self._connected:
             raise RuntimeError(f"{self} is not connected.")
 
@@ -405,50 +436,138 @@ class TwinNexusRobot(Robot):
         if raw.shape != (7,):
             raise ValueError(f"Expected action shape (7,), got {raw.shape}")
 
-        raw_joints  = raw[:6].tolist()
-        raw_gripper = float(raw[6])
+        with self._lock:
+            self._target_joints  = raw[:6].tolist()
+            self._target_gripper = float(raw[6])
 
-        # Rate-limit joints
-        if self._last_pub_joints is None:
+        return {"action": raw}
+
+    def go_home(self) -> None:
+        """Move to home position through the 500Hz interpolation thread.
+
+        Uses GO_HOME_VEL_RAD_S (0.5 rad/s) — same as GELLO bridge bridge_delta.
+        Blocks until the interpolated command position converges to home.
+        Home values are read from return_home.py (single source of truth).
+        """
+        if not self._connected:
+            raise RuntimeError(f"{self} is not connected.")
+
+        if "return_home" not in sys.modules:
+            spec = importlib.util.spec_from_file_location("return_home", _RETURN_HOME_PY)
+            mod  = importlib.util.module_from_spec(spec)
+            sys.modules["return_home"] = mod
+            spec.loader.exec_module(mod)
+        mod = sys.modules["return_home"]
+
+        home_joints  = list(mod.HOME_JOINTS)
+        home_gripper = mod.HOME_GRIPPER_MM / 1000.0  # mm → m
+
+        # Stop cameras so their wait_for_frames() calls no longer compete for the
+        # GIL — that competition starves spin_once() and causes the 500Hz timer
+        # to miss beats, which makes the robot stop-and-go during homing.
+        self._camera_running = False
+        if self._camera_thread and self._camera_thread.is_alive():
+            self._camera_thread.join(timeout=2.0)
+
+        self._interp_vel = GO_HOME_VEL_RAD_S
+        with self._lock:
+            self._target_joints  = home_joints
+            self._target_gripper = home_gripper
+
+        logger.info(
+            "go_home: moving to %s at %.1f rad/s",
+            [f"{v:.3f}" for v in home_joints],
+            GO_HOME_VEL_RAD_S,
+        )
+
+        timeout = 30.0
+        t_start = time.perf_counter()
+        while time.perf_counter() - t_start < timeout:
             with self._lock:
-                self._last_pub_joints = (
-                    self._joint_pos.tolist() if self._joint_pos is not None
-                    else [0.0] * 6
-                )
-        safe_joints = []
-        for prev, new in zip(self._last_pub_joints, raw_joints):
-            delta = max(-self.config.max_delta_rad,
-                        min(self.config.max_delta_rad, new - prev))
-            safe_joints.append(prev + delta)
-        self._last_pub_joints = safe_joints
+                last = self._last_interp_joints
+            if last is not None:
+                if max(abs(l - h) for l, h in zip(last, home_joints)) < HOME_CONVERGENCE_RAD:
+                    logger.info("go_home: home position reached.")
+                    break
+            time.sleep(0.05)
+        else:
+            logger.warning("go_home: timeout — robot may not have reached home.")
 
-        # Publish to admittance controller
+        self._interp_vel = TRACKING_VEL_RAD_S
+
+        # Restart cameras now that homing is done
+        self._camera_running = True
+        self._camera_thread = threading.Thread(
+            target=self._camera_loop, daemon=True, name="camera-loop"
+        )
+        self._camera_thread.start()
+
+    # ── 500Hz ROS2 timer callback ─────────────────────────────────────────────
+
+    def _interp_callback(self) -> None:
+        """Called by the ROS2 executor at 500Hz — one interpolation tick.
+
+        Replaces the Python thread approach.  ROS2 timers use the system's
+        monotonic clock and are driven by the executor, giving far more accurate
+        500Hz cadence than time.sleep().  This is the same architecture as the
+        GELLO bridge (create_timer → publish loop).
+
+        While _target_joints is None the callback is a no-op so the GELLO bridge
+        retains exclusive control of the admittance controller during recording.
+        """
+        t_now     = time.perf_counter()
+        # Cap actual_dt to 2× nominal so an occasional late tick never causes a
+        # step large enough to hit the UR5e joint speed limiter.
+        actual_dt = min(t_now - self._t_last_interp, 2.0 / INTERP_HZ)
+        self._t_last_interp = t_now
+
+        with self._lock:
+            target_j  = list(self._target_joints) if self._target_joints is not None else None
+            target_g  = self._target_gripper
+            current_j = list(self._joint_pos)     if self._joint_pos     is not None else None
+
+        if target_j is None:
+            return  # no-op: GELLO bridge owns the controller
+
+        # Seed from actual robot position on first active call
+        if self._interp_last_joints is None:
+            self._interp_last_joints = current_j[:] if current_j is not None else target_j[:]
+
+        vel   = self._interp_vel
+        delta = vel * actual_dt
+
+        new_joints = [
+            prev + max(-delta, min(delta, goal - prev))
+            for prev, goal in zip(self._interp_last_joints, target_j)
+        ]
+
         pt = JointTrajectoryPoint()
-        pt.positions  = safe_joints
-        pt.velocities = [0.0] * 6
+        pt.positions       = new_joints
+        pt.velocities      = [0.0] * 6
         pt.time_from_start = Duration(sec=0, nanosec=LOOKAHEAD_NS)
         self._joint_pub.publish(pt)
 
-        # Rate-limit and publish gripper
-        if self._last_pub_gripper is None:
-            self._last_pub_gripper = raw_gripper
-        g_delta = max(-self.config.max_delta_m,
-                      min(self.config.max_delta_m, raw_gripper - self._last_pub_gripper))
-        safe_gripper = self._last_pub_gripper + g_delta
-        self._last_pub_gripper = safe_gripper
+        # Gripper: pass target directly — WSG32 node handles its own motion control
+        if target_g is not None:
+            g_msg = Float32()
+            g_msg.data = float(target_g * 1000.0)   # m → mm for WSG32
+            self._gripper_pub.publish(g_msg)
 
-        g_msg = Float32()
-        g_msg.data = float(safe_gripper * 1000.0)   # m → mm for WSG32
-        self._gripper_pub.publish(g_msg)
+        self._interp_last_joints = new_joints
 
-        return {"action": np.array(safe_joints + [safe_gripper], dtype=np.float32)}
+        with self._lock:
+            self._last_interp_joints = new_joints[:]
 
     # ── ROS 2 spin loop ────────────────────────────────────────────────────────
 
     def _spin_loop(self) -> None:
-        """Drive the ROS 2 executor in a loop that can be paused via _spin_stop."""
+        """Drive the ROS 2 executor in a loop that can be paused via _spin_stop.
+
+        timeout_sec=0.001 (1ms) lets the executor service the 500Hz timer
+        (2ms period) without missing beats.  With 10ms it would only fire ~100Hz.
+        """
         while not self._spin_stop.is_set():
-            self._executor.spin_once(timeout_sec=0.01)
+            self._executor.spin_once(timeout_sec=0.001)
 
     # ── Camera loop (pyrealsense2 direct) ─────────────────────────────────────
 

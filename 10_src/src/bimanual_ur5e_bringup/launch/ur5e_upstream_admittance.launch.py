@@ -1,6 +1,7 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, RegisterEventHandler, TimerAction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, RegisterEventHandler, TimerAction
 from launch.event_handlers import OnProcessExit
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -14,6 +15,7 @@ def generate_launch_description():
     controller_spawner_timeout = LaunchConfiguration("controller_spawner_timeout")
     admittance_params_file = LaunchConfiguration("admittance_params_file")
     post_unload_delay = LaunchConfiguration("post_unload_delay")
+    gripper_delay = LaunchConfiguration("gripper_delay")
 
     admittance_unspawner = Node(
         package="controller_manager",
@@ -54,6 +56,22 @@ def generate_launch_description():
             "--param-file",
             admittance_params_file,
         ],
+    )
+
+    # ── WSG32 right arm gripper ───────────────────────────────────────────────
+    gripper_right = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            PathJoinSubstitution([
+                FindPackageShare("wsg32_driver"),
+                "launch",
+                "wsg32.launch.py",
+            ])
+        ]),
+        launch_arguments={
+            "gripper_ip":   "192.168.1.201",
+            "gripper_name": "wsg32_right",
+            "namespace":    "right_arm",
+        }.items(),
     )
 
     return LaunchDescription(
@@ -99,6 +117,11 @@ def generate_launch_description():
                 default_value="1.0",
                 description="Delay between unloading the trajectory controller and spawning admittance.",
             ),
+            DeclareLaunchArgument(
+                "gripper_delay",
+                default_value="5.0",
+                description="Seconds after admittance spawns before starting the WSG32 gripper.",
+            ),
             admittance_unspawner,
             RegisterEventHandler(
                 OnProcessExit(
@@ -110,6 +133,13 @@ def generate_launch_description():
                 OnProcessExit(
                     target_action=unspawner,
                     on_exit=[TimerAction(period=post_unload_delay, actions=[spawner])],
+                )
+            ),
+            # Start gripper after admittance controller is up
+            RegisterEventHandler(
+                OnProcessExit(
+                    target_action=spawner,
+                    on_exit=[TimerAction(period=gripper_delay, actions=[gripper_right])],
                 )
             ),
         ]
