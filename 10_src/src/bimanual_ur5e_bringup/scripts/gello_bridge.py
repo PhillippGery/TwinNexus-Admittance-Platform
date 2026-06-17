@@ -299,7 +299,7 @@ class GELLOBridge(Node):
                 f'  GELLO : {[f"{v:+.3f}" for v in gello_target]} grip={gripper:.3f}\n'
                 f'  Robot : {[f"{v:+.3f}" for v in self._current_pos]} grip={self._last_gripper:.3f}\n'
                 f'  Delta : {[f"{g-r:+.3f}" for g, r in zip(gello_target, self._current_pos)]}',
-                throttle_duration_sec=0.5,
+                throttle_duration_sec=10.0,
             )
 
         # ── Startup hold ──────────────────────────────────────────────────
@@ -316,7 +316,7 @@ class GELLOBridge(Node):
                         f'HOLD NOT RELEASED — max delta {max_delta:.3f} rad '
                         f'exceeds limit {self._max_initial_delta:.3f} rad. '
                         f'Move GELLO closer to robot pose.',
-                        throttle_duration_sec=1.0,
+                        throttle_duration_sec=2.0,
                     )
                     self._elapsed = 0.0
                 else:

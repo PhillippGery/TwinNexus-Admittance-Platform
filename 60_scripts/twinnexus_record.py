@@ -174,6 +174,9 @@ def main():
     #     image_writer_threads=4,
     # )
 
+    # encoder_queue_maxsize: large enough to buffer the full episode even if the
+    # encoder threads are temporarily slow (e.g. during GIL contention from ROS2/
+    # pyrealsense2 threads). 600 = 25s @ 24fps; encoder catches up after save_episode.
     dataset = LeRobotDataset.create(
         repo_id=args.repo_id,
         fps=args.fps,
@@ -182,7 +185,8 @@ def main():
         robot_type="twinnexus",
         streaming_encoding=True,
         encoder_threads=4,
-        encoder_queue_maxsize=200,
+        encoder_queue_maxsize=600,
+        camera_encoder=VideoEncoderConfig(vcodec="auto", g=16),
     )
 
 
@@ -210,33 +214,42 @@ def main():
 
             # Record episode
             print(f"  Recording {args.episode_time_s}s ... (move GELLO now)")
-            frame_count  = 0
+            frame_count   = 0
+            slow_frames   = 0
             episode_start = time.perf_counter()
             dt            = 1.0 / args.fps
+            next_frame_t  = episode_start
 
-            # In the record loop — replace the entire loop with:
-            last_frame_hash = None
-            while time.perf_counter() - episode_start < args.episode_time_s:
-                obs = robot.get_observation()
-                
-                # Only record when we have a new camera frame
-                current_hash = hash(obs["observation.images.wrist_right"].tobytes()[:100])
-                if current_hash == last_frame_hash:
-                    continue  # same frame, skip
-                last_frame_hash = current_hash
-
+            while True:
+                now     = time.perf_counter()
+                elapsed = now - episode_start
+                if elapsed >= args.episode_time_s:
+                    break
                 if stop_episode.is_set():
                     print("\n  Episode stopped early.")
                     break
-                
+
+                sleep_s = next_frame_t - now
+                if sleep_s > 0:
+                    time.sleep(sleep_s)
+
+                t_work = time.perf_counter()
+                obs    = robot.get_observation()
                 action = obs["observation.state"]
                 frame  = obs_to_frame(obs, action, args.task)
                 dataset.add_frame(frame)
-                frame_count += 1
+                work_ms = (time.perf_counter() - t_work) * 1000
+                if work_ms > dt * 1000 * 0.8:  # >80% of frame budget
+                    slow_frames += 1
 
-                #print time every second
+                frame_count  += 1
+                next_frame_t += dt
+
                 if frame_count % args.fps == 0:
-                    print(f"Time: {time.perf_counter() - episode_start:.1f}s, Frames: {frame_count}")
+                    actual_fps = frame_count / (time.perf_counter() - episode_start)
+                    print(f"  Time: {time.perf_counter() - episode_start:.1f}s, "
+                          f"Frames: {frame_count}, fps: {actual_fps:.1f}, "
+                          f"slow_frames: {slow_frames}")
                     
                     
                     
@@ -257,11 +270,14 @@ def main():
             #wait 0.5s for the go_home command to execute before starting the reset timer
             time.sleep(0.5)  # wait a bit for the go_home command to execute
 
-            # Save episode
+            # Save episode and stop tiem for savinhg (includes async encoding time)
+            t_save_start = time.perf_counter()
             print("  Saving episode ...")
             dataset.save_episode()
             print(f"  Episode {episode_idx + 1} saved. "
                   f"Total episodes: {dataset.num_episodes}")
+            t_save_end = time.perf_counter()
+            print(f"  Save time: {t_save_end - t_save_start:.2f}s")
 
             episode_idx += 1
 
