@@ -68,30 +68,33 @@ def _load_robot_class():
 
 def _load_episode(dataset_path: str, episode_idx: int) -> np.ndarray:
     """
-    Load the action sequence for one episode from a LeRobot parquet file.
+    Load actions from a LeRobot v2 dataset (chunk files under data/).
 
-    Searches {dataset_path}/data/**/episode_{episode_idx:06d}.parquet.
+    Finds all parquet files under {dataset_path}/data/, concatenates them,
+    and filters by episode_index column if present.
     Returns actions as float32 ndarray of shape (T, 14).
     """
-    pattern = os.path.join(
-        os.path.expanduser(dataset_path),
-        "data", "**", f"episode_{episode_idx:06d}.parquet",
-    )
-    matches = glob.glob(pattern, recursive=True)
+    pattern = os.path.join(os.path.expanduser(dataset_path), "data", "**", "*.parquet")
+    matches = sorted(glob.glob(pattern, recursive=True))
     if not matches:
         raise FileNotFoundError(
-            f"No parquet file found for episode {episode_idx} in {dataset_path}.\n"
+            f"No parquet files found under {dataset_path}/data/\n"
             f"Searched: {pattern}"
         )
 
-    df = pd.read_parquet(matches[0])
+    df = pd.concat([pd.read_parquet(f) for f in matches], ignore_index=True)
 
     if "action" not in df.columns:
         raise ValueError(
             f"Parquet file has no 'action' column. Columns: {list(df.columns)}"
         )
 
-    # LeRobot stores array columns as lists; convert to ndarray
+    if "episode_index" in df.columns:
+        ep_ids = sorted(df["episode_index"].unique())
+        if episode_idx not in ep_ids:
+            raise ValueError(f"Episode {episode_idx} not found. Available: {ep_ids}")
+        df = df[df["episode_index"] == episode_idx].reset_index(drop=True)
+
     actions = np.array(df["action"].tolist(), dtype=np.float32)
 
     if actions.ndim != 2 or actions.shape[1] != 14:

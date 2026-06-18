@@ -61,7 +61,7 @@
       selected_axes:
         - true
         - true
-        - true
+        - false
         - true
         - true
         - true
