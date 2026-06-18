@@ -79,7 +79,7 @@ def main():
     print(f"Right home target sent: {[f'{v:.3f}' for v in HOME_JOINTS]}")
     print(f"Left home target sent:  {[f'{v:.3f}' for v in LEFT_HOME_JOINTS]}")
 
-    deadline = time.time() + 2.0
+    deadline = time.time() + 4.0
     while time.time() < deadline:
         executor.spin_once(timeout_sec=0.05)
 

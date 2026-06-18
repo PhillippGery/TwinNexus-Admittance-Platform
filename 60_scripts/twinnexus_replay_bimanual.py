@@ -137,7 +137,7 @@ def main():
         help="Replay speed in frames per second (default: 24).",
     )
     parser.add_argument(
-        "--max-delta-rad", type=float, default=0.15,
+        "--max-delta-rad", type=float, default=0.25,
         help="Safety threshold: skip action if any joint delta exceeds this (rad).",
     )
     args = parser.parse_args()

@@ -142,26 +142,7 @@ class BimanualTwinNexusRobot:
         if self._connected:
             return
 
-        # ── Cameras ───────────────────────────────────────────────────────────
-        for cam, serial in self._CAM_SERIALS.items():
-            try:
-                pipeline = rs.pipeline()
-                cfg = rs.config()
-                cfg.enable_device(serial)
-                cfg.enable_stream(rs.stream.color, IMG_W, IMG_H, rs.format.bgr8, 30)
-                pipeline.start(cfg)
-                self._rs_pipelines[cam] = pipeline
-                logger.info(f"BimanualRobot: camera {cam} ({serial}) started.")
-            except Exception as e:
-                logger.warning(f"BimanualRobot: camera {cam} ({serial}) failed: {e}")
-
-        self._camera_running = True
-        self._camera_thread = threading.Thread(
-            target=self._camera_loop, daemon=True, name="bimanual_cameras"
-        )
-        self._camera_thread.start()
-
-        # ── ROS2 ─────────────────────────────────────────────────────────────
+        # ── ROS2 first — let DDS discovery settle before cameras spike USB ──
         if not rclpy.ok():
             rclpy.init()
 
@@ -219,6 +200,28 @@ class BimanualTwinNexusRobot:
                 f"BimanualRobot: timed out waiting for joint states from: {missing}. "
                 "Is boot_hw_bimanual running with Play pressed on both pendants?"
             )
+
+        # ── Cameras — started after robot confirmed stable ────────────────────
+        # Staggered startup avoids a simultaneous USB bandwidth spike that can
+        # starve the ur_robot_driver RTDE thread and drop external control.
+        for cam, serial in self._CAM_SERIALS.items():
+            try:
+                pipeline = rs.pipeline()
+                cfg = rs.config()
+                cfg.enable_device(serial)
+                cfg.enable_stream(rs.stream.color, IMG_W, IMG_H, rs.format.bgr8, 30)
+                pipeline.start(cfg)
+                self._rs_pipelines[cam] = pipeline
+                logger.info(f"BimanualRobot: camera {cam} ({serial}) started.")
+                time.sleep(0.3)   # stagger USB negotiation between cameras
+            except Exception as e:
+                logger.warning(f"BimanualRobot: camera {cam} ({serial}) failed: {e}")
+
+        self._camera_running = True
+        self._camera_thread = threading.Thread(
+            target=self._camera_loop, daemon=True, name="bimanual_cameras"
+        )
+        self._camera_thread.start()
 
         # Wait for first camera frames
         active_cams = [k for k, p in self._rs_pipelines.items() if p is not None]
@@ -552,7 +555,7 @@ def main():
 
             print("  → Returning to home position ...")
             subprocess.Popen(_RETURN_HOME_CMD, shell=True, executable='/bin/bash')
-            time.sleep(0.5)
+            time.sleep(2.5)
 
             robot.pause_for_save()
 
