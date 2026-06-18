@@ -21,8 +21,9 @@ from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 HOME_JOINTS     = [1.611, -1.392, -1.494, -1.627, -4.61, -1.732]
 HOME_GRIPPER_MM = 50.0
 
-GELLO_HOME_TOPIC  = '/gello_bridge_right/go_home'
-GRIPPER_TOPIC     = '/right_arm/wsg32_node/cmd_pos'
+GELLO_HOME_TOPIC    = '/gello_bridge_right/go_home'
+TWINNEXUS_HOME_TOPIC = '/twinnexus_bridge_right/go_home'
+GRIPPER_TOPIC       = '/right_arm/wsg32_node/cmd_pos'
 
 
 def main():
@@ -35,25 +36,33 @@ def main():
         reliability=ReliabilityPolicy.RELIABLE,
     )
 
-    home_pub = node.create_publisher(JointState, GELLO_HOME_TOPIC, go_home_qos)
-    gripper_pub = node.create_publisher(Float32,    GRIPPER_TOPIC,    1)
+    # Publish to both bridges — whichever is running will handle it.
+    # GELLO bridge (spawntele): reads position[:6], ignores 7th value.
+    # TwinNexus bridge (spawnctrl): reads position[:6] for joints, position[6] for gripper.
+    gello_pub      = node.create_publisher(JointState, GELLO_HOME_TOPIC,     go_home_qos)
+    twinnexus_pub  = node.create_publisher(JointState, TWINNEXUS_HOME_TOPIC, go_home_qos)
+    gripper_pub    = node.create_publisher(Float32,    GRIPPER_TOPIC,        1)
 
     executor = rclpy.executors.SingleThreadedExecutor()
     executor.add_node(node)
 
-    # Send home target to GELLO bridge — it handles everything from here
-    # Send multiple times to guarantee delivery
+    home_gripper_m = HOME_GRIPPER_MM / 1000.0
 
-    msg = JointState()
-    msg.position = HOME_JOINTS
-    home_pub.publish(msg)
+    # GELLO bridge format: 6 joints
+    gello_msg = JointState()
+    gello_msg.position = HOME_JOINTS
+
+    # TwinNexus bridge format: 6 joints + gripper (metres)
+    tn_msg = JointState()
+    tn_msg.position = HOME_JOINTS + [home_gripper_m]
+
+    gello_pub.publish(gello_msg)
+    twinnexus_pub.publish(tn_msg)
     executor.spin_once(timeout_sec=0.02)
 
     print(f"Home target sent: {[f'{v:.3f}' for v in HOME_JOINTS]}")
-    print("Bridge is moving robot to home at tracking speed.")
-    print("Watch terminal for 'Home reached' — then match GELLO pose.")
 
-    # Open gripper
+    # Also send gripper directly (covers case where only GELLO bridge is running)
     g_msg = Float32()
     g_msg.data = HOME_GRIPPER_MM
     gripper_pub.publish(g_msg)

@@ -74,6 +74,24 @@ def generate_launch_description():
         }.items(),
     )
 
+    # ── TwinNexus bridge — interpolation layer between any target source ──────
+    # and the admittance controller.  Runs as a separate process (own GIL) so
+    # camera/inference threads cannot starve its 500Hz timer.
+    bridge_node = Node(
+        package="bimanual_ur5e_bringup",
+        executable="twinnexus_bridge.py",
+        name="twinnexus_bridge_right",
+        output="screen",
+        parameters=[{
+            "publish_hz":          500.0,
+            "joint_states_topic":  "/joint_states",
+            "admittance_topic":    "/admittance_controller/joint_references",
+            "gripper_topic":       "/right_arm/wsg32_node/cmd_pos",
+            "tracking_delta_rad":  0.002,
+            "go_home_delta_rad":   0.001,
+        }],
+    )
+
     return LaunchDescription(
         [
             DeclareLaunchArgument(
@@ -132,14 +150,23 @@ def generate_launch_description():
             RegisterEventHandler(
                 OnProcessExit(
                     target_action=unspawner,
-                    on_exit=[TimerAction(period=post_unload_delay, actions=[spawner])],
+                    on_exit=[
+                        # Bridge starts as soon as the trajectory controller is gone.
+                        # It begins holding the current robot position immediately so the
+                        # admittance controller inherits a correct reference the moment it
+                        # activates — no stale-reference velocity spike on first command.
+                        bridge_node,
+                        TimerAction(period=post_unload_delay, actions=[spawner]),
+                    ],
                 )
             ),
             # Start gripper after admittance controller is up
             RegisterEventHandler(
                 OnProcessExit(
                     target_action=spawner,
-                    on_exit=[TimerAction(period=gripper_delay, actions=[gripper_right])],
+                    on_exit=[
+                        TimerAction(period=gripper_delay, actions=[gripper_right]),
+                    ],
                 )
             ),
         ]

@@ -15,6 +15,7 @@ install(PROGRAMS
   scripts/gello_bridge.py
   scripts/moveit_servo_to_admittance.py
   scripts/set_servo_command_type.py
+  scripts/twinnexus_bridge.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
