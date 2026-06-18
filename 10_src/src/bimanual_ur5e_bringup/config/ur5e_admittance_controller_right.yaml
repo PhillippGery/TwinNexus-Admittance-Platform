@@ -59,8 +59,8 @@
 
     admittance:
       selected_axes:
-        - true
-        - true
+        - false
+        - false
         - false
         - true
         - true
@@ -75,17 +75,17 @@
         - 0.3
 
       damping_ratio:
-        - 2.2
-        - 2.2
-        - 2.2
+        - 8.2
+        - 8.2
+        - 8.2
         - 1.2
         - 1.2
         - 1.2
 
       stiffness:
-        - 150.0
-        - 150.0
-        - 150.0
+        - 50.0
+        - 50.0
+        - 50.0
         - 20.0
         - 20.0
         - 20.0
