@@ -84,18 +84,20 @@ class TwinNexusBridge(Node):
         self.declare_parameter('admittance_topic',     '/admittance_controller/joint_references')
         self.declare_parameter('gripper_topic',        '/right_arm/wsg32_node/cmd_pos')
         self.declare_parameter('joint_prefix',         '')
-        self.declare_parameter('tracking_delta_rad',   0.002)
-        self.declare_parameter('go_home_delta_rad',    0.001)
+        self.declare_parameter('tracking_delta_rad',    0.002)
+        self.declare_parameter('go_home_delta_rad',     0.001)
+        self.declare_parameter('approach_threshold_rad', 0.05)
 
-        pub_hz              = self.get_parameter('publish_hz').value
-        joint_states_topic  = self.get_parameter('joint_states_topic').value
-        admittance_topic    = self.get_parameter('admittance_topic').value
-        gripper_topic       = self.get_parameter('gripper_topic').value
-        joint_prefix        = self.get_parameter('joint_prefix').value
-        self._joint_names   = [f'{joint_prefix}{n}' for n in UR5E_JOINT_NAMES]
-        self._tracking_delta = self.get_parameter('tracking_delta_rad').value
-        self._go_home_delta  = self.get_parameter('go_home_delta_rad').value
-        self._dt             = 1.0 / pub_hz
+        pub_hz                   = self.get_parameter('publish_hz').value
+        joint_states_topic       = self.get_parameter('joint_states_topic').value
+        admittance_topic         = self.get_parameter('admittance_topic').value
+        gripper_topic            = self.get_parameter('gripper_topic').value
+        joint_prefix             = self.get_parameter('joint_prefix').value
+        self._joint_names        = [f'{joint_prefix}{n}' for n in UR5E_JOINT_NAMES]
+        self._tracking_delta     = self.get_parameter('tracking_delta_rad').value
+        self._go_home_delta      = self.get_parameter('go_home_delta_rad').value
+        self._approach_threshold = self.get_parameter('approach_threshold_rad').value
+        self._dt                 = 1.0 / pub_hz
 
         # ── State ─────────────────────────────────────────────────────────
         self._current_pos:    list[float] | None = None  # latest from /joint_states
@@ -104,6 +106,9 @@ class TwinNexusBridge(Node):
         self._target_gripper: float | None       = None  # gripper target (metres)
         self._home_target:    list[float] | None = None  # go_home target (6 joints)
         self._home_gripper:   float | None       = None  # go_home gripper (metres)
+        # Latches True the first time gap drops below approach_threshold.
+        # Never reverts to approach speed until go_home resets it.
+        self._tracking_active: bool = False
 
         # ── QoS for go_home — durable so bridge receives it even if late ──
         go_home_qos = QoSProfile(
@@ -169,8 +174,9 @@ class TwinNexusBridge(Node):
                 throttle_duration_sec=2.0,
             )
             return
-        self._home_target  = list(msg.position[:6])
-        self._home_gripper = float(msg.position[6])
+        self._home_target     = list(msg.position[:6])
+        self._home_gripper    = float(msg.position[6])
+        self._tracking_active = False  # re-arm approach phase for next GELLO stream
         # Do NOT re-seed _last_pub from actual robot position here.
         # _last_pub is the admittance controller's current reference (what we last sent).
         # Re-seeding from the actual position causes a large reference step →
@@ -212,9 +218,14 @@ class TwinNexusBridge(Node):
 
         # ── Priority 2: tracking target ───────────────────────────────────
         if self._target is not None:
-            self._last_pub = self._rate_limit(
-                self._last_pub, self._target, self._tracking_delta
-            )
+            # Approach phase: use go_home speed until gap first drops below threshold,
+            # then latch to tracking speed permanently (until next go_home resets it).
+            if not self._tracking_active:
+                max_gap = max(abs(t - p) for t, p in zip(self._target, self._last_pub))
+                if max_gap <= self._approach_threshold:
+                    self._tracking_active = True
+            delta = self._tracking_delta if self._tracking_active else self._go_home_delta
+            self._last_pub = self._rate_limit(self._last_pub, self._target, delta)
             if self._target_gripper is not None:
                 self._publish_gripper(self._target_gripper)
             self._publish_joints(self._last_pub)

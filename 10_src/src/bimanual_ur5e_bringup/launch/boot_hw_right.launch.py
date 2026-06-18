@@ -19,5 +19,9 @@ def generate_launch_description():
                 "kinematics_params_file": "/home/phillippgery/TwinNexus-Admittance-Platform/ur5e_factory_calibration.yaml",
                 "launch_rviz":            "true",
             }.items(),
+
+            
+
+            
         ),
     ])

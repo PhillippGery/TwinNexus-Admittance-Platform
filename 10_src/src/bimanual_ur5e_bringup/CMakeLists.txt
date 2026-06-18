@@ -11,9 +11,8 @@ install(DIRECTORY
 )
 
 install(PROGRAMS
-  scripts/admittance_keyboard_teleop.py
   scripts/gello_bridge.py
-  scripts/moveit_servo_to_admittance.py
+  scripts/return_home.py
   scripts/set_servo_command_type.py
   scripts/twinnexus_bridge.py
   DESTINATION lib/${PROJECT_NAME}

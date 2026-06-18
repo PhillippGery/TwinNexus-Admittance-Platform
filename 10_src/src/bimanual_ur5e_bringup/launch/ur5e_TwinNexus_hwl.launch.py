@@ -156,23 +156,19 @@ def generate_launch_description():
         name='gello_bridge_right',
         parameters=[{
             # ── GELLO hardware — RIGHT arm ────────────────────────────────
-            'gello_port':     '/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTAO4WDM-if00-port0',
-            'joint_offsets':  [0.0, 3.14159, -1.5708, 4.7124, 7.8540, 4.7124],
+            'gello_port':     '/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTAO51SL-if00-port0',
+            'joint_offsets':  [0.0, 3.14159, 3.14159, 4.71239, 6.28318, 4.71239],
             'joint_signs':    [1.0, 1.0, -1.0, 1.0, 1.0, 1.0],
-            'gripper_config': [7.0, 115.4, 73.6],
+            'gripper_config': [7.0, 201.157, 159.357],
 
-            # ── ROS topics — RIGHT arm ────────────────────────────────────
+            # ── ROS topics ────────────────────────────────────────────────
             'joint_states_topic': '/joint_states',
-            'admittance_topic':   '/admittance_controller/joint_references',
-            'gripper_topic':      '/right_arm/wsg32_node/cmd_pos',
+            'target_topic':       '/twinnexus_bridge_right/target_joints',
 
             # ── Control ───────────────────────────────────────────────────
-            'publish_hz':             500.0,
-            'startup_hold_s':         3.0,
-            'max_initial_delta_rad':  max_initial_delta_rad,
-            'bridge_delta_rad':       0.0006,
-            'tracking_delta_rad':     0.003,
-            'tracking_threshold':     0.05,
+            'publish_hz':            30.0,
+            'startup_hold_s':        3.0,
+            'max_initial_delta_rad': max_initial_delta_rad,
         }],
         output='screen',
         emulate_tty=True,

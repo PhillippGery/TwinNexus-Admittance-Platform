@@ -25,10 +25,10 @@ HOME_GRIPPER_MM = 50.0
 LEFT_HOME_JOINTS     = [-0.272, -1.6385, 1.2859, -1.414, -1.5339, 1.492]
 LEFT_HOME_GRIPPER_MM = HOME_GRIPPER_MM
 
-GELLO_HOME_TOPIC_RIGHT     = '/gello_bridge_right/go_home'
-GELLO_HOME_TOPIC_LEFT      = '/gello_bridge_left/go_home'
-TWINNEXUS_HOME_TOPIC_RIGHT = '/twinnexus_bridge_right/go_home'
-TWINNEXUS_HOME_TOPIC_LEFT  = '/twinnexus_bridge_left/go_home'
+GELLO_HOME_TOPIC_RIGHT     = '/right_arm/gello_bridge_right/go_home'
+GELLO_HOME_TOPIC_LEFT      = '/left_arm/gello_bridge_left/go_home'
+TWINNEXUS_HOME_TOPIC_RIGHT = '/right_arm/twinnexus_bridge_right/go_home'
+TWINNEXUS_HOME_TOPIC_LEFT  = '/left_arm/twinnexus_bridge_left/go_home'
 GRIPPER_TOPIC_RIGHT        = '/right_arm/wsg32_node/cmd_pos'
 GRIPPER_TOPIC_LEFT         = '/left_arm/wsg32_node/cmd_pos'
 
