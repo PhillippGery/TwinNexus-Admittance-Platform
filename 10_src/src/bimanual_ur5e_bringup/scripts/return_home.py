@@ -2,7 +2,7 @@
 """
 return_home.py
 --------------
-Sends go_home target to GELLO bridge.
+Sends go_home target to active TwinNexus / GELLO bridges.
 The bridge handles the 500Hz interpolation with its own rate limiter.
 
 Usage:
@@ -21,9 +21,16 @@ from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 HOME_JOINTS     = [1.611, -1.392, -1.494, -1.627, -4.61, -1.732]
 HOME_GRIPPER_MM = 50.0
 
-GELLO_HOME_TOPIC    = '/gello_bridge_right/go_home'
-TWINNEXUS_HOME_TOPIC = '/twinnexus_bridge_right/go_home'
-GRIPPER_TOPIC       = '/right_arm/wsg32_node/cmd_pos'
+# Left arm home — update after left-arm calibration if needed.
+LEFT_HOME_JOINTS     = [-0.272, -1.6385, 1.2859, -1.414, -1.5339, 1.492]
+LEFT_HOME_GRIPPER_MM = HOME_GRIPPER_MM
+
+GELLO_HOME_TOPIC_RIGHT     = '/gello_bridge_right/go_home'
+GELLO_HOME_TOPIC_LEFT      = '/gello_bridge_left/go_home'
+TWINNEXUS_HOME_TOPIC_RIGHT = '/twinnexus_bridge_right/go_home'
+TWINNEXUS_HOME_TOPIC_LEFT  = '/twinnexus_bridge_left/go_home'
+GRIPPER_TOPIC_RIGHT        = '/right_arm/wsg32_node/cmd_pos'
+GRIPPER_TOPIC_LEFT         = '/left_arm/wsg32_node/cmd_pos'
 
 
 def main():
@@ -36,38 +43,42 @@ def main():
         reliability=ReliabilityPolicy.RELIABLE,
     )
 
-    # Publish to both bridges — whichever is running will handle it.
-    # GELLO bridge (spawntele): reads position[:6], ignores 7th value.
-    # TwinNexus bridge (spawnctrl): reads position[:6] for joints, position[6] for gripper.
-    gello_pub      = node.create_publisher(JointState, GELLO_HOME_TOPIC,     go_home_qos)
-    twinnexus_pub  = node.create_publisher(JointState, TWINNEXUS_HOME_TOPIC, go_home_qos)
-    gripper_pub    = node.create_publisher(Float32,    GRIPPER_TOPIC,        1)
+    pubs = [
+        node.create_publisher(JointState, GELLO_HOME_TOPIC_RIGHT, go_home_qos),
+        node.create_publisher(JointState, GELLO_HOME_TOPIC_LEFT, go_home_qos),
+        node.create_publisher(JointState, TWINNEXUS_HOME_TOPIC_RIGHT, go_home_qos),
+        node.create_publisher(JointState, TWINNEXUS_HOME_TOPIC_LEFT, go_home_qos),
+        node.create_publisher(Float32, GRIPPER_TOPIC_RIGHT, 1),
+        node.create_publisher(Float32, GRIPPER_TOPIC_LEFT, 1),
+    ]
 
     executor = rclpy.executors.SingleThreadedExecutor()
     executor.add_node(node)
 
-    home_gripper_m = HOME_GRIPPER_MM / 1000.0
+    def _home_msg(joints, gripper_mm):
+        msg = JointState()
+        msg.position = joints + [gripper_mm / 1000.0]
+        return msg
 
-    # GELLO bridge format: 6 joints
-    gello_msg = JointState()
-    gello_msg.position = HOME_JOINTS
+    def _gripper_msg(gripper_mm):
+        msg = Float32()
+        msg.data = gripper_mm
+        return msg
 
-    # TwinNexus bridge format: 6 joints + gripper (metres)
-    tn_msg = JointState()
-    tn_msg.position = HOME_JOINTS + [home_gripper_m]
+    right_home = _home_msg(HOME_JOINTS, HOME_GRIPPER_MM)
+    left_home = _home_msg(LEFT_HOME_JOINTS, LEFT_HOME_GRIPPER_MM)
 
-    gello_pub.publish(gello_msg)
-    twinnexus_pub.publish(tn_msg)
+    pubs[0].publish(right_home)
+    pubs[1].publish(left_home)
+    pubs[2].publish(right_home)
+    pubs[3].publish(left_home)
+    pubs[4].publish(_gripper_msg(HOME_GRIPPER_MM))
+    pubs[5].publish(_gripper_msg(LEFT_HOME_GRIPPER_MM))
     executor.spin_once(timeout_sec=0.02)
 
-    print(f"Home target sent: {[f'{v:.3f}' for v in HOME_JOINTS]}")
+    print(f"Right home target sent: {[f'{v:.3f}' for v in HOME_JOINTS]}")
+    print(f"Left home target sent:  {[f'{v:.3f}' for v in LEFT_HOME_JOINTS]}")
 
-    # Also send gripper directly (covers case where only GELLO bridge is running)
-    g_msg = Float32()
-    g_msg.data = HOME_GRIPPER_MM
-    gripper_pub.publish(g_msg)
-
-    # Drain messages
     deadline = time.time() + 2.0
     while time.time() < deadline:
         executor.spin_once(timeout_sec=0.05)

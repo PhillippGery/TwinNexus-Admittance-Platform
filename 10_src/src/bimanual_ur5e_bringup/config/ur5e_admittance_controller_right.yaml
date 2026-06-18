@@ -1,0 +1,91 @@
+/right_arm/admittance_controller:
+  ros__parameters:
+    type: admittance_controller/AdmittanceController
+
+    joints:
+      - right_arm_shoulder_pan_joint
+      - right_arm_shoulder_lift_joint
+      - right_arm_elbow_joint
+      - right_arm_wrist_1_joint
+      - right_arm_wrist_2_joint
+      - right_arm_wrist_3_joint
+
+    command_interfaces:
+      - position
+
+    state_interfaces:
+      - position
+      - velocity
+
+    chainable_command_interfaces:
+      - position
+      - velocity
+
+    kinematics:
+      plugin_name: kinematics_interface_kdl/KinematicsInterfaceKDL
+      plugin_package: kinematics_interface
+      base: right_arm_base
+      tip: right_arm_tool0
+      group_name: arm
+      alpha: 0.01
+
+    ft_sensor:
+      name: right_arm_tcp_fts_sensor
+      frame:
+        id: right_arm_tool0
+        external: true
+      filter_coefficient: 0.005
+
+    control:
+      frame:
+        id: right_arm_tool0
+        external: true
+
+    fixed_world_frame:
+      frame:
+        id: right_arm_base
+        external: false
+
+    gravity_compensation:
+      frame:
+        id: right_arm_tool0
+        external: false
+      CoG:
+        pos:
+          - 0.0
+          - 0.0
+          - 0.0
+        force: 0.0
+
+    admittance:
+      selected_axes:
+        - true
+        - true
+        - true
+        - true
+        - true
+        - true
+
+      mass:
+        - 8.0
+        - 8.0
+        - 8.0
+        - 0.3
+        - 0.3
+        - 0.3
+
+      damping_ratio:
+        - 2.2
+        - 2.2
+        - 2.2
+        - 1.2
+        - 1.2
+        - 1.2
+
+      stiffness:
+        - 150.0
+        - 150.0
+        - 150.0
+        - 20.0
+        - 20.0
+        - 20.0

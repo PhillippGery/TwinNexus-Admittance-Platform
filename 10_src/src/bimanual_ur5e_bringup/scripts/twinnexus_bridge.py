@@ -30,6 +30,7 @@ Parameters (all overridable at launch for second arm)
     joint_states_topic  str     /joint_states
     admittance_topic    str     /admittance_controller/joint_references
     gripper_topic       str     /right_arm/wsg32_node/cmd_pos
+    joint_prefix        str     ""  (e.g. "right_arm_" for boot_hw_bimanual)
     tracking_delta_rad  float   0.002   (1.0 rad/s @ 500Hz — matches GELLO tracking)
     go_home_delta_rad   float   0.001   (0.5 rad/s @ 500Hz — matches GELLO bridge)
 
@@ -41,8 +42,9 @@ Usage
     # Left arm:
     ros2 run bimanual_ur5e_bringup twinnexus_bridge.py \
         --ros-args -r __node:=twinnexus_bridge_left \
-        -p joint_states_topic:=/left/joint_states \
-        -p admittance_topic:=/left_admittance_controller/joint_references \
+        -p joint_states_topic:=/left_arm/joint_states \
+        -p admittance_topic:=/left_arm/admittance_controller/joint_references \
+        -p joint_prefix:=left_arm_ \
         -p gripper_topic:=/left_arm/wsg32_node/cmd_pos
 
     # Publish a target manually (example):
@@ -81,6 +83,7 @@ class TwinNexusBridge(Node):
         self.declare_parameter('joint_states_topic',   '/joint_states')
         self.declare_parameter('admittance_topic',     '/admittance_controller/joint_references')
         self.declare_parameter('gripper_topic',        '/right_arm/wsg32_node/cmd_pos')
+        self.declare_parameter('joint_prefix',         '')
         self.declare_parameter('tracking_delta_rad',   0.002)
         self.declare_parameter('go_home_delta_rad',    0.001)
 
@@ -88,6 +91,8 @@ class TwinNexusBridge(Node):
         joint_states_topic  = self.get_parameter('joint_states_topic').value
         admittance_topic    = self.get_parameter('admittance_topic').value
         gripper_topic       = self.get_parameter('gripper_topic').value
+        joint_prefix        = self.get_parameter('joint_prefix').value
+        self._joint_names   = [f'{joint_prefix}{n}' for n in UR5E_JOINT_NAMES]
         self._tracking_delta = self.get_parameter('tracking_delta_rad').value
         self._go_home_delta  = self.get_parameter('go_home_delta_rad').value
         self._dt             = 1.0 / pub_hz
@@ -133,7 +138,7 @@ class TwinNexusBridge(Node):
         """Update current robot position from /joint_states."""
         name_to_pos = dict(zip(msg.name, msg.position))
         try:
-            self._current_pos = [name_to_pos[n] for n in UR5E_JOINT_NAMES]
+            self._current_pos = [name_to_pos[n] for n in self._joint_names]
         except KeyError:
             self.get_logger().warn(
                 f'Joint names mismatch. Got: {list(msg.name)}',
@@ -249,7 +254,7 @@ class TwinNexusBridge(Node):
     def _publish_status(self, positions: list[float]) -> None:
         msg = JointState()
         msg.header.stamp = self.get_clock().now().to_msg()
-        msg.name         = UR5E_JOINT_NAMES
+        msg.name         = self._joint_names
         msg.position     = positions
         self._status_pub.publish(msg)
 
