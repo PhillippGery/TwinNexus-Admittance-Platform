@@ -115,6 +115,30 @@ python ~/TwinNexus-Admittance-Platform/60_scripts/twinnexus_record.py \
 
 ---
 
+## 4. Relaunch and Zero FT Sensors
+
+After `boot_hw_bimanual` is running and both controller managers are active with RTDE pipelines streaming, zero the force-torque sensors **before** launching the admittance controllers. Skipping this step causes the admittance controller to see a false force offset and will make the robot drift or feel stiff.
+
+```bash
+ros2 service call /left_arm/io_and_status_controller/zero_ftsensor std_srvs/srv/Trigger {}
+ros2 service call /right_arm/io_and_status_controller/zero_ftsensor std_srvs/srv/Trigger {}
+```
+
+Verify both streams are at the ambient noise floor (±1.0 N) before launching `spawnctrl_bimanual`:
+
+```bash
+ros2 topic echo /left_arm/force_torque_sensor_broadcaster/wrench --once
+ros2 topic echo /right_arm/force_torque_sensor_broadcaster/wrench --once
+```
+
+Then launch the admittance controllers:
+
+```bash
+spawnctrl_bimanual          # or spawnctrl_bimanual teleop:=true for GELLO teleoperation
+```
+
+---
+
 ## Key ROS 2 Topics
 
 | Topic | Type | Description |

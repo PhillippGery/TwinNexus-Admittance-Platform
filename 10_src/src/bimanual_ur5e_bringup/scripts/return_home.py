@@ -14,7 +14,6 @@ import rclpy
 import rclpy.executors
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Float32
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 
 # ── Configuration ─────────────────────────────────────────────────────────────
@@ -29,8 +28,8 @@ GELLO_HOME_TOPIC_RIGHT     = '/right_arm/gello_bridge_right/go_home'
 GELLO_HOME_TOPIC_LEFT      = '/left_arm/gello_bridge_left/go_home'
 TWINNEXUS_HOME_TOPIC_RIGHT = '/right_arm/twinnexus_bridge_right/go_home'
 TWINNEXUS_HOME_TOPIC_LEFT  = '/left_arm/twinnexus_bridge_left/go_home'
-GRIPPER_TOPIC_RIGHT        = '/right_arm/wsg32_node/cmd_pos'
-GRIPPER_TOPIC_LEFT         = '/left_arm/wsg32_node/cmd_pos'
+# Gripper is commanded by the TwinNexus bridge's go_home handler — not published
+# directly here to avoid a double-command race when the arm is already at home.
 
 
 def main():
@@ -48,8 +47,6 @@ def main():
         node.create_publisher(JointState, GELLO_HOME_TOPIC_LEFT, go_home_qos),
         node.create_publisher(JointState, TWINNEXUS_HOME_TOPIC_RIGHT, go_home_qos),
         node.create_publisher(JointState, TWINNEXUS_HOME_TOPIC_LEFT, go_home_qos),
-        node.create_publisher(Float32, GRIPPER_TOPIC_RIGHT, 1),
-        node.create_publisher(Float32, GRIPPER_TOPIC_LEFT, 1),
     ]
 
     executor = rclpy.executors.SingleThreadedExecutor()
@@ -60,11 +57,6 @@ def main():
         msg.position = joints + [gripper_mm / 1000.0]
         return msg
 
-    def _gripper_msg(gripper_mm):
-        msg = Float32()
-        msg.data = gripper_mm
-        return msg
-
     right_home = _home_msg(HOME_JOINTS, HOME_GRIPPER_MM)
     left_home = _home_msg(LEFT_HOME_JOINTS, LEFT_HOME_GRIPPER_MM)
 
@@ -72,8 +64,6 @@ def main():
     pubs[1].publish(left_home)
     pubs[2].publish(right_home)
     pubs[3].publish(left_home)
-    pubs[4].publish(_gripper_msg(HOME_GRIPPER_MM))
-    pubs[5].publish(_gripper_msg(LEFT_HOME_GRIPPER_MM))
     executor.spin_once(timeout_sec=0.02)
 
     print(f"Right home target sent: {[f'{v:.3f}' for v in HOME_JOINTS]}")

@@ -210,8 +210,8 @@ class TwinNexusBridge(Node):
                     self._last_pub, self._home_target, self._go_home_delta
                 )
                 # Send gripper directly (no rate limit — WSG32 handles its own motion)
-                if self._home_gripper is not None:
-                    self._publish_gripper(self._home_gripper)
+            if self._home_gripper is not None:
+                self._publish_gripper(self._home_gripper)
             self._publish_joints(self._last_pub)
             self._publish_status(self._last_pub)
             return
