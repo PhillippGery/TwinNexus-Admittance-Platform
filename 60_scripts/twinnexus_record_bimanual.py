@@ -173,6 +173,7 @@ class BimanualTwinNexusRobot:
             JointState, self._LEFT_BRIDGE_TOPIC, 1
         )
 
+        time.sleep(1.0)  # Let ROS2 settle before starting spin thread and cameras
         self._executor = SingleThreadedExecutor()
         self._executor.add_node(self._ros_node)
         self._spin_stop.clear()
