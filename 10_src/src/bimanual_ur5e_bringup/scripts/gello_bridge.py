@@ -105,7 +105,7 @@ class GELLOBridge(Node):
 
         # Control
         self.declare_parameter('publish_hz',           500.0)
-        self.declare_parameter('startup_hold_s',         3.0)
+        self.declare_parameter('startup_hold_s',         2.0)
         self.declare_parameter('max_initial_delta_rad',  0.3)
 
         # ── Read parameters ───────────────────────────────────────────────
@@ -233,7 +233,7 @@ class GELLOBridge(Node):
                 throttle_duration_sec=10.0,
             )
 
-            if not math.isinf(self._hold_s) and self._elapsed >= self._hold_s:
+            if not math.isinf(self._hold_s) and self._elapsed > self._hold_s:
                 max_delta = max(
                     abs(g - r)
                     for g, r in zip(gello_joints, self._current_pos)
@@ -245,13 +245,15 @@ class GELLOBridge(Node):
                         f'Move GELLO closer to robot pose.',
                         throttle_duration_sec=2.0,
                     )
-                    self._elapsed = 0.0
+                    #self._elapsed = 0.0
+                    
                 else:
                     self._hold_active = False
                     self.get_logger().info(
                         f'Hold released (max delta={max_delta:.3f} rad). '
                         f'Streaming GELLO → TwinNexus bridge.'
                     )
+                    
             return  # never publish during hold
 
         # ── Stream raw target to TwinNexus bridge ─────────────────────────

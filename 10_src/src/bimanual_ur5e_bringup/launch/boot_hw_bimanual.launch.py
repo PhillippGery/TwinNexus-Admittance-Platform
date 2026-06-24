@@ -1,5 +1,6 @@
-import os
 
+
+import os
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
@@ -11,7 +12,7 @@ from launch_ros.substitutions import FindPackageShare
 _ARM_DRIVER = os.path.join(
     os.path.dirname(__file__), "_ur5e_arm.launch.py"
 )
-KINEMATICS_RIGHT = "/home/phillippgery/TwinNexus-Admittance-Platform/ur5e_factory_calibration.yaml"
+KINEMATICS_RIGHT = "/home/phillippgery/TwinNexus-Admittance-Platform/10_src/ur5e_factory_calibration.yaml"
 KINEMATICS_LEFT  = "/home/phillippgery/TwinNexus-Admittance-Platform/10_src/robot_calibration.yaml"
 
 
@@ -26,10 +27,11 @@ def generate_launch_description():
             "tf_prefix":              "right_arm_",
             "kinematics_params_file": KINEMATICS_RIGHT,
             "launch_rviz":            "false",
-            "reverse_port":           "50021",  # Changed
-            "script_sender_port":     "50022",  # Changed
-            "trajectory_port":        "50023",  # Changed
-            "script_command_port":    "50024",  # Changed
+            "reverse_port":           "50021",  
+            "script_sender_port":     "50022",  
+            "trajectory_port":        "50023",  
+            "script_command_port":    "50024",
+            #Host Port on Roboot Panles has to be 50022 with Host Ip matching
         }.items(),
     )
 
@@ -45,6 +47,7 @@ def generate_launch_description():
             "script_command_port":    "50014",
             "script_sender_port":     "50012",
             "trajectory_port":        "50013",
+            # Host Port on Roboot Panles has to be 50012 with Host Ip matching
         }.items(),
     )
 
@@ -74,7 +77,7 @@ def generate_launch_description():
         right_arm,
         # Delay left arm 5 s — both ros2_control_nodes starting simultaneously
         # causes a DDS participant race condition (alternating SIGABRT).
-        TimerAction(period=5.0, actions=[left_arm]),
+        TimerAction(period=10.0, actions=[left_arm]),
         #static_tf,
         #TimerAction(period=13.0, actions=[rviz]),
     ])

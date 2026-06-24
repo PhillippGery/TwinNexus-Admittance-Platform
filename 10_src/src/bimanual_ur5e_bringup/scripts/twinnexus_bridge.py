@@ -109,6 +109,7 @@ class TwinNexusBridge(Node):
         # Latches True the first time gap drops below approach_threshold.
         # Never reverts to approach speed until go_home resets it.
         self._tracking_active: bool = False
+        self._home_hold_timer = None
 
         # ── QoS for go_home — durable so bridge receives it even if late ──
         go_home_qos = QoSProfile(
@@ -176,15 +177,39 @@ class TwinNexusBridge(Node):
             return
         self._home_target     = list(msg.position[:6])
         self._home_gripper    = float(msg.position[6])
-        self._tracking_active = False  # re-arm approach phase for next GELLO stream
-        # Do NOT re-seed _last_pub from actual robot position here.
-        # _last_pub is the admittance controller's current reference (what we last sent).
-        # Re-seeding from the actual position causes a large reference step →
-        # implied velocity spike → UR5e protective stop.
-        # _last_pub is seeded from _current_pos only once on first ever publish (_publish()).
-        self.get_logger().info(
+        self._tracking_active = False  
+        
+        # Cancel any active hold timer if homing is re-triggered
+        if self._home_hold_timer is not None:
+            self.get_logger().info('Cancelling active hold timer due to new go_home command.')
+            self._home_hold_timer.cancel()
+            self.destroy_timer(self._home_hold_timer)
+            self._home_hold_timer = None
+            
+            self.get_logger().info(
             f'Go home: {[f"{v:.3f}" for v in self._home_target]}'
         )
+    def _cb_home_hold_expired(self) -> None:
+        """Triggered exactly 3 seconds after reaching home position."""
+        # 1. Grab a local reference and instantly clear the class property
+        timer = self._home_hold_timer
+        if timer is None:
+            return
+        self._home_hold_timer = None
+
+        # 2. Immediately cancel and destroy the timer before any other processing
+        try:
+            timer.cancel()
+            self.destroy_timer(timer)
+        except Exception as e:
+            self.get_logger().error(f'Failed to destroy timer: {e}')
+
+        # 3. Execute the rest of your logic safely
+        self.get_logger().info('Hold expired. Ready for new commands.')
+        self._home_target = None
+        self._target = None
+        self._tracking_active = False
+
 
     # ── 500Hz publish loop ────────────────────────────────────────────────────
 
@@ -199,19 +224,27 @@ class TwinNexusBridge(Node):
         # ── Priority 1: go_home ───────────────────────────────────────────
         if self._home_target is not None:
             max_gap = max(abs(h - p) for h, p in zip(self._home_target, self._last_pub))
+            # home gripper
+
+            if self._home_gripper is not None:
+                self._publish_gripper(self._home_gripper)
+
             if max_gap < 0.01:
-                self.get_logger().info('Home reached.')
+                self.get_logger().info('Home reached.', throttle_duration_sec=2.0)
                 # Keep publishing home position but clear the active target
-                self._home_target = None
-                # Clear tracking target too — caller sets a new one after go_home
-                self._target = None
+                # self._home_target = None
+                # # Clear tracking target too — caller sets a new one after go_home
+                # self._target = None
+
+                self._home_hold_timer = self.create_timer(4.0, self._cb_home_hold_expired)
             else:
                 self._last_pub = self._rate_limit(
                     self._last_pub, self._home_target, self._go_home_delta
                 )
                 # Send gripper directly (no rate limit — WSG32 handles its own motion)
-            if self._home_gripper is not None:
-                self._publish_gripper(self._home_gripper)
+
+
+            
             self._publish_joints(self._last_pub)
             self._publish_status(self._last_pub)
             return

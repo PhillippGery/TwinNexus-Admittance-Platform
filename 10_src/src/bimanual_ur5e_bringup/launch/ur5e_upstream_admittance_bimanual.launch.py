@@ -27,6 +27,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import AnyLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch.actions import ExecuteProcess
 
 _ARM_ADMITTANCE = os.path.join(os.path.dirname(__file__), "_ur5e_admittance_arm.launch.py")
 _PKG_SHARE = get_package_share_directory("bimanual_ur5e_bringup")
@@ -108,6 +109,22 @@ def generate_launch_description():
             ),
         ],
     )
+    # Automated F/T Sensor Zeroing
+    zero_sensors = TimerAction(
+        period=5.0, # Delay 5s to ensure the driver is fully loaded
+        actions=[
+            ExecuteProcess(
+                cmd=['ros2', 'service', 'call', '/left_arm/io_and_status_controller/zero_ftsensor', 'std_srvs/srv/Trigger', '{}'],
+                output='screen'
+            ),
+            ExecuteProcess(
+                cmd=['ros2', 'service', 'call', '/right_arm/io_and_status_controller/zero_ftsensor', 'std_srvs/srv/Trigger', '{}'],
+                output='screen'
+            ),
+        ]
+    )
+
+
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -123,5 +140,6 @@ def generate_launch_description():
 
         _arm_include("right", "192.168.1.201", "wsg32_right"),
         _arm_include("left",  "192.168.1.202", "wsg32_left"),
+        zero_sensors,
         gello_bridges,
     ])

@@ -24,6 +24,15 @@ Usage:
         --repo-id PhillippGery/task_bimanual_001 --task "hand off cube" \\
         --num-episodes 20 --bimanual
 
+    python3 ~/TwinNexus-Admittance-Platform/60_scripts/twinnexus_record_bimanual.py --bimanual   --repo-id bimanual_box_001   --task "pick yeallow Box and place in the red square on the Table"   --num-episodes 1   --episode-time-s 40    --fps 24   --root ~/TwinNexus-Admittance-Platform/30_data
+
+    python3 ~/TwinNexus-Admittance-Platform/60_scripts/twinnexus_record_bimanual.py  \\
+        --bimanual   --repo-id bimanual_test   --task "bimanual pick and place"  \\
+              --num-episodes 1   --episode-time-s 30   --reset-time-s 5   --fps 24 \\
+                    --root ~/TwinNexus-Admittance-Platform/30_data
+
+    
+
 Controls:
     Enter    → confirm ready / stop episode early
     Ctrl+C   → stop (saves completed episodes)
@@ -46,7 +55,7 @@ from lerobot.configs.video import VideoEncoderConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 from sensor_msgs.msg import JointState
 
 logging.basicConfig(level=logging.INFO)
@@ -122,6 +131,8 @@ class BimanualTwinNexusRobot:
         self._spin_thread: threading.Thread | None    = None
         self._spin_stop    = threading.Event()
         self._connected    = False
+        self._right_target_pub = None   # created lazily in send_action()
+        self._left_target_pub  = None
 
     @property
     def observation_features(self) -> dict:
@@ -161,19 +172,7 @@ class BimanualTwinNexusRobot:
             JointState, self._LEFT_GRIPPER_TOPIC,  self._cb_left_gripper,  1
         )
 
-        _go_home_qos = QoSProfile(
-            depth=1,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            reliability=ReliabilityPolicy.RELIABLE,
-        )
-        self._right_target_pub = self._ros_node.create_publisher(
-            JointState, self._RIGHT_BRIDGE_TOPIC, 1
-        )
-        self._left_target_pub = self._ros_node.create_publisher(
-            JointState, self._LEFT_BRIDGE_TOPIC, 1
-        )
-
-        time.sleep(1.0)  # Let ROS2 settle before starting spin thread and cameras
+        time.sleep(1.0)  # let subscription SEDP discovery settle before spin starts
         self._executor = SingleThreadedExecutor()
         self._executor.add_node(self._ros_node)
         self._spin_stop.clear()
@@ -270,6 +269,14 @@ class BimanualTwinNexusRobot:
         """Split (14,) action → right bridge (7,) + left bridge (7,)."""
         if not self._connected:
             raise RuntimeError("BimanualRobot is not connected.")
+        if self._right_target_pub is None:
+            self._right_target_pub = self._ros_node.create_publisher(
+                JointState, self._RIGHT_BRIDGE_TOPIC, 1
+            )
+            self._left_target_pub = self._ros_node.create_publisher(
+                JointState, self._LEFT_BRIDGE_TOPIC, 1
+            )
+            time.sleep(1.0)  # let DDS endpoint match settle before first publish
         raw = np.asarray(action["action"], dtype=np.float32)
         if raw.shape != (14,):
             raise ValueError(f"Expected action shape (14,), got {raw.shape}")
@@ -469,7 +476,8 @@ def main():
         print("  2. spawnctrl is running")
         print("  3. GELLO hold has released")
     print()
-    input("Press Enter to connect robot and start recording...")
+    time.sleep(1.0)
+    #input("Press Enter to connect robot and start recording...")
 
     # ── Connect ───────────────────────────────────────────────────────────────
     print("Connecting ...")
@@ -561,11 +569,34 @@ def main():
             robot.pause_for_save()
 
             t_save = time.perf_counter()
-            print("  Saving episode ...")
-            dataset.save_episode()
-            print(f"  Episode {episode_idx + 1} saved  "
-                  f"(total: {dataset.num_episodes})  "
-                  f"save time: {time.perf_counter() - t_save:.2f}s")
+
+
+            while True:
+                user_input = input("  Save this episode? [y/n]: ").strip().lower()
+                if user_input in ['y', '']:
+                    t_save = time.perf_counter()
+                    print("  Saving episode ...")
+                    dataset.save_episode()
+                    print(f"  Episode {episode_idx + 1} saved  "
+                          f"(total: {dataset.num_episodes})  "
+                          f"save time: {time.perf_counter() - t_save:.2f}s")
+                    episode_idx += 1 # Only increment if saved
+                    break
+                elif user_input == 'n':
+                    dataset.clear_episode_buffer()
+                    print("  Episode discarded.")
+                    # Do NOT increment episode_idx, allowing the user to redo this attempt
+                    break
+                else:
+                    print("  Invalid input. Please type 'y' or 'n'.")
+
+
+
+            # print("  Saving episode ...")
+            # dataset.save_episode()
+            # print(f"  Episode {episode_idx + 1} saved  "
+            #       f"(total: {dataset.num_episodes})  "
+            #       f"save time: {time.perf_counter() - t_save:.2f}s")
 
             robot.resume_from_save()
             episode_idx += 1

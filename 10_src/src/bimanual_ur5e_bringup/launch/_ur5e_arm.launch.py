@@ -98,6 +98,7 @@ def launch_setup(context):
             f"reverse_port:={rev_port}",
             f"script_sender_port:={send_port}",
             f"trajectory_port:={traj_port}",
+            f"receive_timeout:=5.0",
         ],
         capture_output=True, text=True, check=True,
     )
