@@ -134,7 +134,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'max_initial_delta_rad',
-            default_value='0.5',
+            default_value='0.4',# 0.5 rad = 28.6 deg
             description='Max GELLO-robot joint delta (rad) before hold releases.',
         ),
 

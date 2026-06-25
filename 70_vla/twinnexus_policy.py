@@ -114,3 +114,62 @@ class TwinNexusOutputs(transforms.DataTransformFn):
 
     def __call__(self, data: dict) -> dict:
         return {"actions": np.asarray(data["actions"][:, :7], dtype=np.float32)}
+
+
+# ── Bimanual transforms ────────────────────────────────────────────────────────
+
+
+@dataclasses.dataclass(frozen=True)
+class BimanualTwinNexusInputs(transforms.DataTransformFn):
+    """
+    Maps TwinNexus bimanual dataset observations to π0.5 model inputs.
+
+    Camera assignment:
+        base_0_rgb        ← observation.images.overhead   (D455 — overall view)
+        left_wrist_0_rgb  ← observation.images.wrist_right (right arm end-effector)
+        right_wrist_0_rgb ← observation.images.wrist_left  (left arm end-effector)
+
+    State:  (14,) [right_joints(6), right_gripper(1), left_joints(6), left_gripper(1)]
+    Action: (14,) same layout
+    """
+
+    model_type: _model.ModelType = _model.ModelType.PI0
+
+    def __call__(self, data: dict) -> dict:
+        overhead_image    = _parse_image(data["observation/image"])
+        wrist_right_image = _parse_image(data["observation/wrist_image"])
+        wrist_left_image  = _parse_image(data["observation/wrist_image_left"])
+
+        inputs = {
+            "state": np.asarray(data["observation/state"], dtype=np.float32),
+            "image": {
+                "base_0_rgb":        overhead_image,
+                "left_wrist_0_rgb":  wrist_right_image,
+                "right_wrist_0_rgb": wrist_left_image,
+            },
+            "image_mask": {
+                "base_0_rgb":        np.True_,
+                "left_wrist_0_rgb":  np.True_,
+                "right_wrist_0_rgb": np.True_,
+            },
+        }
+
+        if "actions" in data:
+            inputs["actions"] = np.asarray(data["actions"], dtype=np.float32)
+        if "prompt" in data:
+            inputs["prompt"] = data["prompt"]
+
+        return inputs
+
+
+@dataclasses.dataclass(frozen=True)
+class BimanualTwinNexusOutputs(transforms.DataTransformFn):
+    """
+    Maps π0.5 model outputs back to bimanual TwinNexus robot actions.
+
+    π0.5 outputs 32-dim actions. We take the first 14 dims:
+    [right_joints(6), right_gripper(1), left_joints(6), left_gripper(1)].
+    """
+
+    def __call__(self, data: dict) -> dict:
+        return {"actions": np.asarray(data["actions"][:, :14], dtype=np.float32)}

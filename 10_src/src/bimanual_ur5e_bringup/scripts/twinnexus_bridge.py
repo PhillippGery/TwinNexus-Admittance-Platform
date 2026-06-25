@@ -206,8 +206,8 @@ class TwinNexusBridge(Node):
 
         # 3. Execute the rest of your logic safely
         self.get_logger().info('Hold expired. Ready for new commands.')
-        self._home_target = None
         self._target = None
+        self._home_target = None
         self._tracking_active = False
 
 
@@ -241,7 +241,7 @@ class TwinNexusBridge(Node):
                 self._last_pub = self._rate_limit(
                     self._last_pub, self._home_target, self._go_home_delta
                 )
-                # Send gripper directly (no rate limit — WSG32 handles its own motion)
+               
 
 
             

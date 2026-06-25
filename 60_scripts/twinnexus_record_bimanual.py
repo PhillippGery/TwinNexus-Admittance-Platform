@@ -445,6 +445,8 @@ def main():
     parser.add_argument("--warmup-time-s",  type=float, default=2.0)
     parser.add_argument("--bimanual",       action="store_true",
                         help="Record both arms (14-dim state/action, 3 cameras).")
+    parser.add_argument("--resume",         action="store_true",
+                        help="Resume appending to an existing dataset (requires --root).")
     args = parser.parse_args()
 
     # ── Build robot ───────────────────────────────────────────────────────────
@@ -487,22 +489,37 @@ def main():
     features = build_features(robot)
     print(f"Features: {list(features.keys())}")
 
-    # ── Create dataset ────────────────────────────────────────────────────────
-    print(f"\nCreating dataset: {args.repo_id}")
-    dataset = LeRobotDataset.create(
-        repo_id=args.repo_id,
-        fps=args.fps,
-        features=features,
-        root=os.path.join(args.root, args.repo_id) if args.root else None,
-        robot_type=robot_type,
-        image_writer_threads=8,
-        image_writer_processes=0,
-        camera_encoder=VideoEncoderConfig(vcodec="h264", preset="fast", g=16),
-    )
-    print("Dataset created.")
+    # ── Create or resume dataset ──────────────────────────────────────────────
+    dataset_root = os.path.join(args.root, args.repo_id) if args.root else None
+
+    if args.resume:
+        if not dataset_root:
+            raise ValueError("--resume requires --root to locate the existing dataset.")
+        print(f"\nResuming dataset: {args.repo_id}")
+        dataset = LeRobotDataset.resume(
+            repo_id=args.repo_id,
+            root=dataset_root,
+            image_writer_threads=8,
+            image_writer_processes=0,
+            camera_encoder=VideoEncoderConfig(vcodec="h264", preset="fast", g=16),
+        )
+        print(f"Resumed. Existing episodes: {dataset.num_episodes}")
+    else:
+        print(f"\nCreating dataset: {args.repo_id}")
+        dataset = LeRobotDataset.create(
+            repo_id=args.repo_id,
+            fps=args.fps,
+            features=features,
+            root=dataset_root,
+            robot_type=robot_type,
+            image_writer_threads=8,
+            image_writer_processes=0,
+            camera_encoder=VideoEncoderConfig(vcodec="h264", preset="fast", g=16),
+        )
+        print("Dataset created.")
 
     # ── Recording loop (identical for single-arm and bimanual) ───────────────
-    episode_idx = 0
+    episode_idx = dataset.num_episodes  # 0 for new datasets, N for resumed ones
     try:
         while episode_idx < args.num_episodes:
             print(f"\n{'=' * 60}")
@@ -568,27 +585,29 @@ def main():
 
             robot.pause_for_save()
 
-            t_save = time.perf_counter()
-
-
-            while True:
-                user_input = input("  Save this episode? [y/n]: ").strip().lower()
-                if user_input in ['y', '']:
-                    t_save = time.perf_counter()
-                    print("  Saving episode ...")
-                    dataset.save_episode()
-                    print(f"  Episode {episode_idx + 1} saved  "
-                          f"(total: {dataset.num_episodes})  "
-                          f"save time: {time.perf_counter() - t_save:.2f}s")
-                    episode_idx += 1 # Only increment if saved
-                    break
-                elif user_input == 'n':
-                    dataset.clear_episode_buffer()
-                    print("  Episode discarded.")
-                    # Do NOT increment episode_idx, allowing the user to redo this attempt
-                    break
-                else:
-                    print("  Invalid input. Please type 'y' or 'n'.")
+            if frame_count == 0:
+                dataset.clear_episode_buffer()
+                print("  Empty episode — auto discarded.")
+            else:
+                t_save = time.perf_counter()
+                while True:
+                    user_input = input("  Save this episode? [y/n]: ").strip().lower()
+                    if user_input in ['y', '']:
+                        t_save = time.perf_counter()
+                        print("  Saving episode ...")
+                        dataset.save_episode()
+                        print(f"  Episode {episode_idx + 1} saved  "
+                              f"(total: {dataset.num_episodes})  "
+                              f"save time: {time.perf_counter() - t_save:.2f}s")
+                        episode_idx += 1  # Only increment if saved
+                        break
+                    elif user_input == 'n':
+                        dataset.clear_episode_buffer()
+                        print("  Episode discarded.")
+                        # Do NOT increment episode_idx, allowing the user to redo this attempt
+                        break
+                    else:
+                        print("  Invalid input. Please type 'y' or 'n'.")
 
 
 
@@ -599,7 +618,7 @@ def main():
             #       f"save time: {time.perf_counter() - t_save:.2f}s")
 
             robot.resume_from_save()
-            episode_idx += 1
+            
 
             if episode_idx < args.num_episodes:
                 print(f"\n  Reset phase ({args.reset_time_s}s) — reset object to start position")

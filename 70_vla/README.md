@@ -156,7 +156,7 @@ HfApi().create_tag('PhillippGery/pick_place_001', tag=version, repo_type='datase
 
 ---
 
-## Inference (TODO)
+## Inference
 
 After training completes:
 
