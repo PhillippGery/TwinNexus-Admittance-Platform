@@ -40,7 +40,7 @@ A full-stack bimanual manipulation research platform built on two **UR5e e-Serie
 
 ![Bimanual pick and place demo](https://github.com/user-attachments/assets/f4103abe-82fb-4ea0-8f83-d6f8ec08a9db)
 
-*Bimanual pick-and-place of a rigid box using the custom admittance controller under GELLO teleoperation. Both arms remain compliantly backdrivable throughout the task.*
+*Bimanual pick-and-place of a rigid box using the custom admittance controller replay of Demo. Both arms remain compliantly backdrivable throughout the task.*
 
 ---
 
