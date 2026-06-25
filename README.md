@@ -38,7 +38,7 @@ A full-stack bimanual manipulation research platform built on two **UR5e e-Serie
 
 ## Demo
 
-![Bimanual pick and place demo](https://github.com/user-attachments/assets/f4103abe-82fb-4ea0-8f83-d6f8ec08a9db)
+<video src="https://github.com/user-attachments/assets/f4103abe-82fb-4ea0-8f83-d6f8ec08a9db" controls autoplay loop muted width="100%"></video>
 
 *Bimanual pick-and-place of a rigid box using the custom admittance controller replay of Demo. Both arms remain compliantly backdrivable throughout the task.*
 
