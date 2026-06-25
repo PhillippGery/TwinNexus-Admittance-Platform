@@ -38,7 +38,7 @@ A full-stack bimanual manipulation research platform built on two **UR5e e-Serie
 
 ## Demo
 
-![Bimanual pick and place demo](figures/bimanual_pick_place_demo.gif)
+![Bimanual pick and place demo](figures/bimanual_pick_place_demo.mp4)
 
 *Bimanual pick-and-place of a rigid box using the custom admittance controller under GELLO teleoperation. Both arms remain compliantly backdrivable throughout the task.*
 
@@ -333,7 +333,7 @@ The bridge applies rate-limiting to the **target joint position** signal, not to
 TwinNexus-Admittance-Platform/
 ├── README.md
 ├── figures/
-│   └── bimanual_pick_place_demo.gif      ← bimanual pick-and-place demo
+│   └── bimanual_pick_place_demo.mp4      ← bimanual pick-and-place demo
 ├── 10_src/                               ← ROS 2 colcon workspace root
 │   └── src/
 │       ├── ur5e_admittance_control/      ← custom C++ admittance controller plugin
