@@ -7,6 +7,8 @@ Convert TwinNexus LeRobot v3.0 dataset to openpi-compatible format.
 Reads existing parquet + video files recorded with LeRobot 0.5.2
 and re-creates the dataset using openpi's bundled LeRobot (0.1.0).
 
+Supports datasets split across multiple chunk/file shards (e.g. after --resume).
+
 Usage:
     cd ~/openpi
 
@@ -48,6 +50,34 @@ def parse_args():
                         help="Bimanual mode: state/action (14,), 3 cameras (overhead, wrist_right, wrist_left)")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing output dataset")
     return parser.parse_args()
+
+
+def load_all_parquet(src: pathlib.Path) -> pd.DataFrame:
+    """Concatenate all parquet shards under data/ in sorted order."""
+    files = sorted(src.glob("data/**/*.parquet"))
+    if not files:
+        raise FileNotFoundError(f"No parquet files found under {src}/data/")
+    print(f"  Parquet shards: {[str(f.relative_to(src)) for f in files]}")
+    return pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
+
+
+def chained_video_reader(src: pathlib.Path, stream_key: str):
+    """
+    Generator that yields BGR frames from all video shards for a given stream,
+    transparently chaining file-000.mp4 → file-001.mp4 → … in sorted order.
+    """
+    files = sorted(src.glob(f"videos/{stream_key}/**/*.mp4"))
+    if not files:
+        raise FileNotFoundError(f"No video files found for stream '{stream_key}' under {src}/videos/")
+    print(f"  Video shards [{stream_key}]: {[str(f.relative_to(src)) for f in files]}")
+    for path in files:
+        cap = cv2.VideoCapture(str(path))
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            yield frame
+        cap.release()
 
 
 def main():
@@ -131,33 +161,15 @@ def main():
         image_writer_threads=4,
     )
 
-    # ── Load parquet ──────────────────────────────────────────────────────────
-    parquet_file = src / "data" / "chunk-000" / "file-000.parquet"
-    if not parquet_file.exists():
-        raise FileNotFoundError(f"Parquet file not found: {parquet_file}")
-
-    df = pd.read_parquet(parquet_file)
+    # ── Load all parquet shards ───────────────────────────────────────────────
+    df = load_all_parquet(src)
     episodes = sorted(df["episode_index"].unique())
     print(f"\nEpisodes: {len(episodes)} | Total frames: {len(df)}")
 
-    # ── Video paths ───────────────────────────────────────────────────────────
-    overhead_video    = src / "videos" / "observation.images.overhead"    / "chunk-000" / "file-000.mp4"
-    wrist_right_video = src / "videos" / "observation.images.wrist_right" / "chunk-000" / "file-000.mp4"
-
-    if not overhead_video.exists():
-        raise FileNotFoundError(f"Overhead video not found: {overhead_video}")
-    if not wrist_right_video.exists():
-        raise FileNotFoundError(f"Wrist-right video not found: {wrist_right_video}")
-
-    cap_overhead    = cv2.VideoCapture(str(overhead_video))
-    cap_wrist_right = cv2.VideoCapture(str(wrist_right_video))
-
-    cap_wrist_left = None
-    if args.bimanual:
-        wrist_left_video = src / "videos" / "observation.images.wrist_left" / "chunk-000" / "file-000.mp4"
-        if not wrist_left_video.exists():
-            raise FileNotFoundError(f"Wrist-left video not found: {wrist_left_video}")
-        cap_wrist_left = cv2.VideoCapture(str(wrist_left_video))
+    # ── Open chained video readers ────────────────────────────────────────────
+    gen_overhead    = chained_video_reader(src, "observation.images.overhead")
+    gen_wrist_right = chained_video_reader(src, "observation.images.wrist_right")
+    gen_wrist_left  = chained_video_reader(src, "observation.images.wrist_left") if args.bimanual else None
 
     # ── Convert episodes ──────────────────────────────────────────────────────
     for ep_idx in episodes:
@@ -166,11 +178,11 @@ def main():
 
         frames_added = 0
         for _, row in ep_df.iterrows():
-            ret1, overhead_frame    = cap_overhead.read()
-            ret2, wrist_right_frame = cap_wrist_right.read()
+            overhead_frame    = next(gen_overhead,    None)
+            wrist_right_frame = next(gen_wrist_right, None)
 
-            if not ret1 or not ret2:
-                print(f" [WARNING: video ended at frame {frames_added}]", end="")
+            if overhead_frame is None or wrist_right_frame is None:
+                print(f" [WARNING: video stream ended at frame {frames_added}]", end="")
                 break
 
             frame_dict = {
@@ -182,8 +194,8 @@ def main():
             }
 
             if args.bimanual:
-                ret3, wrist_left_frame = cap_wrist_left.read()
-                if not ret3:
+                wrist_left_frame = next(gen_wrist_left, None)
+                if wrist_left_frame is None:
                     print(f" [WARNING: left-wrist video ended at frame {frames_added}]", end="")
                     break
                 frame_dict["wrist_image_left"] = cv2.cvtColor(wrist_left_frame, cv2.COLOR_BGR2RGB)
@@ -193,11 +205,6 @@ def main():
 
         dataset.save_episode()
         print(f" ✓")
-
-    cap_overhead.release()
-    cap_wrist_right.release()
-    if cap_wrist_left is not None:
-        cap_wrist_left.release()
 
     config_name = "pi05_twinnexus_bimanual_finetune" if args.bimanual else "pi05_twinnexus_finetune"
     print(f"\nDone. {len(episodes)} episodes converted to {output_path}")

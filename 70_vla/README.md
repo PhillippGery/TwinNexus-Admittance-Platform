@@ -47,7 +47,8 @@ ln -s ~/TwinNexus-Admittance-Platform/70_vla/twinnexus_policy.py \
 cd ~/openpi && uv run huggingface-cli login
 
 # 5. Verify
-grep -n "pi05_twinnexus_finetune" ~/openpi/src/openpi/training/config.py
+grep -n "pi05_twinnexus_bimanual_finetune\|pi05_twinnexus_finetune" \
+      ~/openpi/src/openpi/training/config.py
 ```
 
 ---
@@ -56,12 +57,12 @@ grep -n "pi05_twinnexus_finetune" ~/openpi/src/openpi/training/config.py
 
 ### Why a conversion script?
 
-LeRobot 0.5.2 (used for recording) produces **v3.0 format** datasets.  
-openpi's bundled LeRobot (0.1.0) expects **v2.1 format**.  
-Do NOT downgrade LeRobot — it would break the recording pipeline.  
+LeRobot 0.5.2 (used for recording) produces **v3.0 format** datasets.
+openpi's bundled LeRobot (0.1.0) expects **v2.1 format**.
+Do NOT downgrade LeRobot — it would break the recording pipeline.
 Instead, run the conversion script after each recording session.
 
-### Convert dataset
+### Convert dataset — Single arm
 
 ```bash
 cd ~/openpi
@@ -72,8 +73,23 @@ uv run ~/TwinNexus-Admittance-Platform/70_vla/convert_twinnexus.py \
   --overwrite
 ```
 
-**Important:** Videos must be H264 encoded (not AV1) — openpi's cv2 cannot decode AV1.  
-The recording script uses `h264_nvenc` by default. If you have AV1 videos, transcode first:
+### Convert dataset — Bimanual
+
+```bash
+cd ~/openpi
+uv run ~/TwinNexus-Admittance-Platform/70_vla/convert_twinnexus.py \
+  --src ~/TwinNexus-Admittance-Platform/30_data/bimanual_box_001 \
+  --repo bimanual_box_001_openpi \
+  --task "pick yeallow Box and place in the red square on the Table" \
+  --bimanual \
+  --overwrite
+```
+
+The converter automatically handles datasets split across multiple shards
+(`file-000.parquet`, `file-001.parquet`, …) produced by `--resume` recording sessions.
+
+**Important:** Videos must be H264 encoded (not AV1) — openpi's cv2 cannot decode AV1.
+The recording script uses `h264` by default. If you have AV1 videos, transcode first:
 
 ```bash
 for f in $(find ~/TwinNexus-Admittance-Platform/30_data/pick_place_001 -name "*.mp4"); do
@@ -86,20 +102,35 @@ done
 
 ## Training
 
-### Config name: `pi05_twinnexus_finetune`
+### Configs
 
-The config uses:
+| Config name | Mode | Dataset |
+|-------------|------|---------|
+| `pi05_twinnexus_finetune` | Single arm (7-dim) | `pick_place_001_openpi` |
+| `pi05_twinnexus_bimanual_finetune` | Bimanual (14-dim) | `bimanual_box_001_openpi` |
+
+Both use:
 - π0.5 base weights (downloaded automatically from GCS)
 - LoRA fine-tuning (`gemma_2b_lora` + `gemma_300m_lora`) — fits in 32GB VRAM
-- 10,000 training steps
-- Batch size 64
-- CosineDecay LR schedule, peak 5e-5, warmup 10k steps
+- Batch size 32
+
+### Bimanual config parameters (`pi05_twinnexus_bimanual_finetune`)
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| `num_train_steps` | 35,000 | ~50 epochs over 60 episodes |
+| `warmup_steps` | 1,000 | 3% of total steps |
+| `peak_lr` | 1e-4 | LoRA fine-tuning |
+| `decay_steps` | 35,000 | Cosine decay over full training |
+| `decay_lr` | 5e-6 | Decays to 5% of peak at end |
+| `action_horizon` | 10 | 0.42s prediction window at 24fps |
+| `save_interval` | 1,000 | Checkpoint every 1k steps (35 total) |
 
 ### Step 1 — Compute normalization stats (once per dataset)
 
 ```bash
 cd ~/openpi
-uv run scripts/compute_norm_stats.py --config-name pi05_twinnexus_finetune
+uv run scripts/compute_norm_stats.py --config-name pi05_twinnexus_bimanual_finetune
 ```
 
 ### Step 2 — Train
@@ -107,17 +138,24 @@ uv run scripts/compute_norm_stats.py --config-name pi05_twinnexus_finetune
 ```bash
 cd ~/openpi
 XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
-uv run scripts/train.py pi05_twinnexus_finetune \
-  --exp-name=ScrewdriverPickPlace_v1 \
+uv run scripts/train.py pi05_twinnexus_bimanual_finetune \
+  --exp-name=BimanualBoxPlace_v1 \
   --overwrite
 ```
 
-Checkpoints saved to: `~/openpi/checkpoints/pi05_twinnexus_finetune/<exp-name>/`
+Checkpoints saved to:
+`~/openpi/checkpoints/pi05_twinnexus_bimanual_finetune/BimanualBoxPlace_v1/<step>/`
 
-### Cluster training (A100 80GB)
+### Resume interrupted training
 
-Same commands — no changes needed. The A100 has enough VRAM for full fine-tuning  
-(remove LoRA variants from config if desired), but LoRA is fine and much faster.
+```bash
+cd ~/openpi
+XLA_PYTHON_CLIENT_MEM_FRACTION=0.9 \
+uv run scripts/train.py pi05_twinnexus_bimanual_finetune \
+  --exp-name=BimanualBoxPlace_v1
+```
+
+Drop `--overwrite` to continue from the last saved checkpoint.
 
 ---
 
@@ -129,30 +167,25 @@ Same commands — no changes needed. The A100 has enough VRAM for full fine-tuni
 
 ### 2. AV1 video decoding fails in openpi
 - **Problem:** `cv2` in openpi's venv has no AV1 decoder
-- **Solution:** Use `h264_nvenc` encoder in `twinnexus_record.py` (already set)
+- **Solution:** Use `h264` encoder in the recording script (already set)
 
 ### 3. HuggingFace 401 error even for local datasets
 - **Problem:** openpi's LeRobot calls HF Hub to check dataset versioning
 - **Solution:** Always run `huggingface-cli login` before training
 
-### 4. Dataset must be tagged with codebase version on HF Hub
-- **Problem:** `RevisionNotFoundError` when using HF Hub datasets
-- **Solution:**
-```python
-from huggingface_hub import HfApi
-import json
-with open('path/to/info.json') as f:
-    version = json.load(f)['codebase_version']
-HfApi().create_tag('PhillippGery/pick_place_001', tag=version, repo_type='dataset')
-```
+### 4. Conversion only shows partial episodes after `--resume`
+- **Problem:** `--resume` splits data across multiple parquet/video shards;
+  old converter only read `file-000`
+- **Solution:** Fixed — `convert_twinnexus.py` now globs all shards in sorted order
 
-### 5. OOM with full fine-tuning on RTX 5090 (32GB)
+### 5. OOM on RTX 5090 (32GB VRAM)
 - **Problem:** Full π0.5 fine-tuning requires ~35GB VRAM
 - **Solution:** LoRA fine-tuning (already configured) fits in ~23GB
 
-### 6. RepackTransform key direction
-- **Problem:** Keys must map `{internal_key: dataset_key}` not the other way
-- **Solution:** Already fixed in `openpi_changes.patch`
+### 6. LR schedule bugs (old single-arm config)
+- **Problem:** `warmup_steps == num_train_steps` → model never trains at peak LR;
+  `decay_lr == peak_lr` → no actual decay
+- **Solution:** Fixed in `pi05_twinnexus_bimanual_finetune`
 
 ---
 
@@ -165,22 +198,12 @@ After training completes:
 cd ~/openpi
 uv run scripts/serve_policy.py \
   policy:checkpoint \
-  --policy.config=pi05_twinnexus_finetune \
-  --policy.dir=./checkpoints/pi05_twinnexus_finetune/<exp-name>/<step>
+  --policy.config=pi05_twinnexus_bimanual_finetune \
+  --policy.dir=./checkpoints/pi05_twinnexus_bimanual_finetune/BimanualBoxPlace_v1/<step>
 
-# 2. Run TwinNexus inference client (to be implemented)
+# 2. Run TwinNexus inference client
 python3 ~/TwinNexus-Admittance-Platform/70_vla/twinnexus_inference.py
 ```
-
----
-
-## Bimanual Expansion (Planned)
-
-When left arm is validated:
-- Update `convert_twinnexus.py`: add `wrist_left` camera + extend state/action to (14,)
-- Update `twinnexus_policy.py`: enable `right_wrist_0_rgb` slot
-- Update `TwinNexusRobotConfig`: enable `wrist_left_serial`
-- Collect bimanual episodes and retrain
 
 ---
 
@@ -188,5 +211,7 @@ When left arm is validated:
 
 | Dataset | Episodes | Task | Status |
 |---------|----------|------|--------|
-| `pick_place_001` | 30 | Pick screwdriver → paper box | Recorded, converted, training |
+| `pick_place_001` | 30 | Pick screwdriver → paper box | Recorded, converted |
 | `pick_place_001_openpi` | 30 | Same | openpi format, in HF cache |
+| `bimanual_box_001` | 60 | Pick yellow box → red square on table | Recorded (resumed after crash at ep 21) |
+| `bimanual_box_001_openpi` | 60 | Same | Converted, ready for training |
